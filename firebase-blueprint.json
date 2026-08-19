@@ -1,0 +1,57 @@
+{
+  "entities": {
+    "CourseMeta": {
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "simulados": { "type": "string" },
+        "flashcards": { "type": "string" },
+        "notes": { "type": "string" },
+        "checklists": { "type": "string" }
+      },
+      "required": ["userId"]
+    },
+    "CourseData": {
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 200 },
+        "banca": { "type": "string" },
+        "vagas": { "type": "string" },
+        "remuneracao": { "type": "string" },
+        "requisitos": { "type": "string" },
+        "carreira": { "type": "array" },
+        "etapas": { "type": "array" },
+        "questoes": { "type": "array" },
+        "materials": { "type": "array" },
+        "progress": { "type": "number" },
+        "updatedAt": { "type": "number" },
+        "tafConfig": { "type": "string" },
+        "tafResults": { "type": "string" }
+      },
+      "required": ["userId", "title"]
+    },
+    "User": {
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 255 },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "User",
+      "description": "User profile data."
+    },
+    "users/{userId}/courses/{courseId}": {
+      "schema": "CourseData",
+      "description": "A course/station for a user."
+    },
+    "users/{userId}/meta/{courseId}": {
+      "schema": "CourseMeta",
+      "description": "Metadata for a course (flashcards, notes, etc)."
+    }
+  }
+}

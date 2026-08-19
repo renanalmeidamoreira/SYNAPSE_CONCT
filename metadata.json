@@ -1,0 +1,6 @@
+{
+  "name": "SYNAPSE - Estação de Estudos",
+  "description": "Plataforma de estudos com edital verticalizado, leitor acoplado de mídias, simulados, flashcards, caderno de erros, TAF e assistente IA Gemini.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
