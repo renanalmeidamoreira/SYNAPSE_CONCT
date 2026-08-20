@@ -1,57 +1,86 @@
 {
   "entities": {
-    "CourseMeta": {
+    "authorizedUsers": {
+      "title": "Authorized User",
+      "description": "Whitelist of users permitted to access the SYNAPSE platform",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "maxLength": 128 },
-        "simulados": { "type": "string" },
-        "flashcards": { "type": "string" },
-        "notes": { "type": "string" },
-        "checklists": { "type": "string" }
+        "email": {
+          "type": "string",
+          "description": "The normalized lowercase email of the authorized user"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "student", "guest"],
+          "description": "The permission role of the user"
+        },
+        "addedBy": {
+          "type": "string",
+          "description": "Email of the admin who authorized this user"
+        },
+        "addedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the user was authorized"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Optional notes or name associated with this authorization"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "revoked"],
+          "description": "Whether the user is currently permitted to access"
+        }
       },
-      "required": ["userId"]
+      "required": ["email", "role", "addedBy", "addedAt", "status"]
     },
-    "CourseData": {
+    "userProfiles": {
+      "title": "User Profile",
+      "description": "Profile data for registered SYNAPSE users",
       "type": "object",
       "properties": {
-        "userId": { "type": "string", "maxLength": 128 },
-        "title": { "type": "string", "maxLength": 200 },
-        "banca": { "type": "string" },
-        "vagas": { "type": "string" },
-        "remuneracao": { "type": "string" },
-        "requisitos": { "type": "string" },
-        "carreira": { "type": "array" },
-        "etapas": { "type": "array" },
-        "questoes": { "type": "array" },
-        "materials": { "type": "array" },
-        "progress": { "type": "number" },
-        "updatedAt": { "type": "number" },
-        "tafConfig": { "type": "string" },
-        "tafResults": { "type": "string" }
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID"
+        },
+        "email": {
+          "type": "string",
+          "description": "Google/Gmail address"
+        },
+        "displayName": {
+          "type": "string",
+          "description": "Full name of the user"
+        },
+        "photoURL": {
+          "type": "string",
+          "description": "Avatar photo URL"
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin", "student", "guest"],
+          "description": "Role in SYNAPSE"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastLoginAt": {
+          "type": "string",
+          "format": "date-time"
+        }
       },
-      "required": ["userId", "title"]
-    },
-    "User": {
-      "type": "object",
-      "properties": {
-        "email": { "type": "string", "maxLength": 255 },
-        "createdAt": { "type": "number" }
-      },
-      "required": ["email", "createdAt"]
+      "required": ["uid", "email", "role", "createdAt", "lastLoginAt"]
     }
   },
   "firestore": {
-    "users/{userId}": {
-      "schema": "User",
-      "description": "User profile data."
+    "/authorizedUsers/{userEmail}": {
+      "entity": "authorizedUsers",
+      "description": "Collection of whitelisted emails keyed by normalized email address"
     },
-    "users/{userId}/courses/{courseId}": {
-      "schema": "CourseData",
-      "description": "A course/station for a user."
-    },
-    "users/{userId}/meta/{courseId}": {
-      "schema": "CourseMeta",
-      "description": "Metadata for a course (flashcards, notes, etc)."
+    "/users/{userId}": {
+      "entity": "userProfiles",
+      "description": "Collection of user profiles keyed by auth UID"
     }
   }
 }

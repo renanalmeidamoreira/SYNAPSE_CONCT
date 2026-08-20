@@ -1,55 +1,36 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if false;
+
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    function isValidId(id) { 
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); 
-    }
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-    function isSignedIn() { return request.auth != null; }
-
-    function isValidUser(data) {
-      return data.keys().hasAll(['email', 'createdAt']) &&
-        data.email is string && data.email.size() <= 255 &&
-        data.createdAt is number;
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email != null && (
+          request.auth.token.email.lower() == 'r.fabulous.30@gmail.com'
+        )
+      );
     }
 
-    function isValidCourseData(data) {
-      return data.keys().hasAll(['userId', 'title']) &&
-        data.userId is string && data.userId.size() <= 128 &&
-        data.userId == request.auth.uid &&
-        data.title is string && data.title.size() <= 200;
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
     }
 
-    function isValidCourseMeta(data) {
-      return data.keys().hasAll(['userId']) &&
-        data.userId is string && data.userId.size() <= 128 &&
-        data.userId == request.auth.uid;
+    // Authorized Users Whitelist Collection
+    match /authorizedUsers/{userEmail} {
+      // Authenticated users can check if their email or any email is authorized
+      allow read: if isAuthenticated();
+      // Super admin can add, update, or revoke access
+      allow write: if isSuperAdmin();
     }
 
+    // User Profiles
     match /users/{userId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
-      allow create: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
-      allow update: if isSignedIn() && request.auth.uid == userId && isValidUser(incoming());
-      allow delete: if isSignedIn() && request.auth.uid == userId;
-
-      match /courses/{courseId} {
-        allow read: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(courseId) && isValidCourseData(incoming());
-        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(courseId) && isValidCourseData(incoming()) && incoming().userId == existing().userId;
-        allow delete: if isSignedIn() && request.auth.uid == userId;
-      }
-
-      match /meta/{courseId} {
-        allow read: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn() && request.auth.uid == userId && isValidId(courseId) && isValidCourseMeta(incoming());
-        allow update: if isSignedIn() && request.auth.uid == userId && isValidId(courseId) && isValidCourseMeta(incoming()) && incoming().userId == existing().userId;
-        allow delete: if isSignedIn() && request.auth.uid == userId;
-      }
+      allow read: if isAuthenticated();
+      allow create, update: if isOwner(userId) || isSuperAdmin();
+      allow delete: if isSuperAdmin();
     }
   }
 }

@@ -16,7 +16,9 @@ import {
   ExternalLink,
   SlidersHorizontal,
   GraduationCap,
-  Info
+  Info,
+  Users,
+  ShieldCheck,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { CourseData } from '../types';
@@ -29,6 +31,7 @@ interface HeaderProps {
   onOpenGeminiModal: () => void;
   onOpenPomodoro: () => void;
   onOpenWorkspaceModal?: () => void;
+  onOpenUserManagement?: () => void;
   dailySeconds: number;
   dailyTargetSeconds: number;
   pomodoroState?: {
@@ -46,11 +49,12 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenGeminiModal,
   onOpenPomodoro,
   onOpenWorkspaceModal,
+  onOpenUserManagement,
   dailySeconds,
   dailyTargetSeconds,
   pomodoroState,
 }) => {
-  const { user, logout } = useAuth();
+  const { user, logout, isSuperAdmin, role } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [showToolsMenu, setShowToolsMenu] = useState(false);
   const toolsMenuRef = useRef<HTMLDivElement>(null);
@@ -286,6 +290,20 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <GraduationCap className="w-4 h-4 text-emerald-500" />
                     <span>Google Workspace & Slides</span>
+                  </button>
+                )}
+
+                {/* Gestão de Usuários & Whitelist (Admin/SuperAdmin) */}
+                {(isSuperAdmin || role === 'admin') && onOpenUserManagement && (
+                  <button
+                    onClick={() => {
+                      onOpenUserManagement();
+                      setShowToolsMenu(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/60 rounded-xl transition-colors text-left cursor-pointer"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-amber-500" />
+                    <span>Gestão de Acesso (Whitelist)</span>
                   </button>
                 )}
 

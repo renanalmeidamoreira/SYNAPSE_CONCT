@@ -18,6 +18,8 @@ import { callGeminiAPI } from './utils/gemini';
 import { Header } from './components/Header';
 import { useAuth } from './components/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
+import { UnauthorizedScreen } from './components/UnauthorizedScreen';
+import { UserManagementModal } from './components/UserManagementModal';
 import { FloatingAIAssistant } from './components/FloatingAIAssistant';
 import { loadFromFirestore } from './utils/storage';
 import { Dashboard } from './components/Dashboard';
@@ -48,7 +50,7 @@ interface ToastMessage {
 }
 
 export default function App() {
-  const { user, loading } = useAuth();
+  const { user, loading, isAuthorized } = useAuth();
   const [courses, setCourses] = useState<CourseData[]>([]);
   const [activeCourseId, setActiveCourseIdState] = useState<string | null>(null);
 
@@ -69,6 +71,7 @@ export default function App() {
   const [showNewCourseModal, setShowNewCourseModal] = useState(false);
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
+  const [showUserManagementModal, setShowUserManagementModal] = useState(false);
   const [geminiInitialMessage, setGeminiInitialMessage] = useState('');
   const [showPomodoroModal, setShowPomodoroModal] = useState(false);
   const [isPomodoroMinimized, setIsPomodoroMinimized] = useState(false);
@@ -303,8 +306,22 @@ export default function App() {
     showToast(`Estação Unificada (${station.title}) criada e selecionada!`);
   };
 
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100">Carregando...</div>;
-  if (!user) return <LoginScreen />;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white gap-3 font-sans">
+        <div className="w-10 h-10 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <span className="text-xs font-semibold text-slate-400">Autenticando no SYNAPSE...</span>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen />;
+  }
+
+  if (!isAuthorized) {
+    return <UnauthorizedScreen />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans flex flex-col antialiased selection:bg-indigo-500 selection:text-slate-800 dark:text-white">
@@ -349,6 +366,7 @@ export default function App() {
         onOpenNewCourseModal={() => setShowNewCourseModal(true)}
         onOpenGeminiModal={() => setShowGeminiModal(true)}
         onOpenWorkspaceModal={() => setShowWorkspaceModal(true)}
+        onOpenUserManagement={() => setShowUserManagementModal(true)}
         onOpenPomodoro={() => {
           setShowPomodoroModal(true);
           setIsPomodoroMinimized(false);
@@ -489,6 +507,11 @@ export default function App() {
 
       {/* SYNAPSE-Branded NotebookLM Ecosystem Bridge */}
       <NotebookLMSynapseBridge />
+
+      {/* User Management & Whitelist Modal (Admin Only) */}
+      {showUserManagementModal && (
+        <UserManagementModal onClose={() => setShowUserManagementModal(false)} />
+      )}
     </div>
   );
 }

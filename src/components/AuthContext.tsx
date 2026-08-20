@@ -2,66 +2,61 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   User,
   signInWithPopup,
-  GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
   setPersistence,
   browserLocalPersistence,
 } from 'firebase/auth';
-import { auth, db } from '../utils/firebase';
+import {
+  auth,
+  db,
+  googleProvider,
+  checkEmailAuthorization,
+  isSuperAdminEmail,
+  SUPER_ADMIN_EMAIL,
+} from '../lib/firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
-const AUTH_STORAGE_KEY = 'synapse_auth_session_v1';
+const AUTH_STORAGE_KEY = 'synapse_auth_session_v2';
 const GOOGLE_TOKEN_KEY = 'synapse_google_access_token';
 const GOOGLE_ID_TOKEN_KEY = 'synapse_google_id_token';
 
-export interface PersistedUser {
-  uid: string;
-  email: string | null;
-  displayName: string | null;
-  photoURL: string | null;
-  providerId?: string;
-  isGuest?: boolean;
-  lastLoginAt: number;
-}
-
-interface AuthContextType {
-  user: User | PersistedUser | null;
+export interface AuthContextType {
+  user: User | null;
   loading: boolean;
+  isAuthorized: boolean;
+  isSuperAdmin: boolean;
+  role: 'admin' | 'student' | 'guest';
+  userEmail: string;
   googleAccessToken: string | null;
   login: () => Promise<void>;
-  loginAsGuest: (customName?: string) => void;
+  loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
+  recheckAccess: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
+  isAuthorized: false,
+  isSuperAdmin: false,
+  role: 'guest',
+  userEmail: '',
   googleAccessToken: null,
   login: async () => {},
-  loginAsGuest: () => {},
+  loginWithGoogle: async () => {},
   logout: async () => {},
+  recheckAccess: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | PersistedUser | null>(() => {
-    // 1. Restaurar sessão salva imediatamente no localStorage para evitar redirecionamento ao recarregar a página
-    try {
-      const saved = localStorage.getItem(AUTH_STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.uid) {
-          return parsed;
-        }
-      }
-    } catch (e) {
-      console.warn('Erro ao restaurar sessão inicial:', e);
-    }
-    return null;
-  });
-
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isAuthorized, setIsAuthorized] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [role, setRole] = useState<'admin' | 'student' | 'guest'>('guest');
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => {
     try {
       return localStorage.getItem(GOOGLE_TOKEN_KEY);
@@ -70,161 +65,133 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   });
 
-  const [loading, setLoading] = useState(true);
-
-  // Configurar persistência local do Firebase Auth
+  // Configurar persistência local
   useEffect(() => {
     setPersistence(auth, browserLocalPersistence).catch((err) => {
-      console.warn('Persistência local do Firebase configurada:', err);
+      console.warn('Persistência local Firebase configurada:', err);
     });
   }, []);
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (u) => {
-      if (u) {
-        setUser(u);
-        const persistedData: PersistedUser = {
-          uid: u.uid,
-          email: u.email,
-          displayName: u.displayName,
-          photoURL: u.photoURL,
-          providerId: u.providerData[0]?.providerId || 'google.com',
-          lastLoginAt: Date.now(),
-        };
-        try {
-          localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(persistedData));
-          sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(persistedData));
-        } catch (e) {}
+  const verifyUserAccess = async (currentUser: User | null) => {
+    if (!currentUser) {
+      setUser(null);
+      setIsAuthorized(false);
+      setIsSuperAdmin(false);
+      setRole('guest');
+      setLoading(false);
+      return;
+    }
 
-        // Sincronizar dados no Firestore
+    setUser(currentUser);
+    const email = currentUser.email || '';
+    const superAdmin = isSuperAdminEmail(email);
+    setIsSuperAdmin(superAdmin);
+
+    try {
+      const authResult = await checkEmailAuthorization(email);
+      if (authResult.authorized || superAdmin) {
+        setIsAuthorized(true);
+        setRole(superAdmin ? 'admin' : authResult.role);
+
+        // Salva perfil no Firestore se for a primeira vez
         try {
-          const userRef = doc(db, 'users', u.uid);
+          const userRef = doc(db, 'users', currentUser.uid);
           const snap = await getDoc(userRef);
           if (!snap.exists()) {
             await setDoc(userRef, {
-              email: u.email || '',
-              displayName: u.displayName || '',
-              createdAt: Date.now(),
+              uid: currentUser.uid,
+              email: currentUser.email || '',
+              displayName: currentUser.displayName || '',
+              photoURL: currentUser.photoURL || '',
+              role: superAdmin ? 'admin' : authResult.role,
+              createdAt: new Date().toISOString(),
+              lastLoginAt: new Date().toISOString(),
             });
+          } else {
+            await setDoc(
+              userRef,
+              { lastLoginAt: new Date().toISOString() },
+              { merge: true }
+            );
           }
-        } catch (err) {
-          console.warn('Firestore sync status:', err);
+        } catch (e) {
+          console.warn('Sync do perfil no Firestore:', e);
         }
       } else {
-        // Garantir que a sessão persistida no localStorage previna redirecionamentos indesejados
-        try {
-          const saved = localStorage.getItem(AUTH_STORAGE_KEY);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (parsed && parsed.uid) {
-              setUser(parsed);
-              setLoading(false);
-              return;
-            }
-          }
-        } catch (e) {}
-
-        setUser(null);
+        setIsAuthorized(false);
+        setRole('guest');
       }
+    } catch (err) {
+      console.warn('Erro ao verificar lista de autorizados:', err);
+      if (superAdmin) {
+        setIsAuthorized(true);
+        setRole('admin');
+      } else {
+        setIsAuthorized(false);
+        setRole('guest');
+      }
+    } finally {
       setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      await verifyUserAccess(u);
     });
 
     return () => unsubscribe();
   }, []);
 
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    // Escopos do Google para conexão única unificada (Classroom, Slides, Drive, Profile)
-    provider.addScope('https://www.googleapis.com/auth/userinfo.profile');
-    provider.addScope('https://www.googleapis.com/auth/userinfo.email');
-    provider.addScope('https://www.googleapis.com/auth/drive.readonly');
-    provider.addScope('https://www.googleapis.com/auth/classroom.courses.readonly');
-    provider.addScope('https://www.googleapis.com/auth/classroom.coursework.me.readonly');
-    provider.addScope('https://www.googleapis.com/auth/classroom.announcements.readonly');
-    provider.addScope('https://www.googleapis.com/auth/classroom.rosters.readonly');
-    provider.addScope('https://www.googleapis.com/auth/presentations.readonly');
-    provider.setCustomParameters({
-      prompt: 'select_account',
-    });
-
+  const loginWithGoogleHandler = async () => {
     try {
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
+      setLoading(true);
+      googleProvider.setCustomParameters({ prompt: 'select_account' });
+      googleProvider.addScope('https://www.googleapis.com/auth/userinfo.profile');
+      googleProvider.addScope('https://www.googleapis.com/auth/userinfo.email');
+
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = (result as any).credential;
       const token = credential?.accessToken || null;
-      const idToken = await result.user.getIdToken();
 
       if (token) {
         setGoogleAccessToken(token);
         try {
           localStorage.setItem(GOOGLE_TOKEN_KEY, token);
-          sessionStorage.setItem(GOOGLE_TOKEN_KEY, token);
         } catch (e) {}
       }
 
-      if (idToken) {
-        try {
-          localStorage.setItem(GOOGLE_ID_TOKEN_KEY, idToken);
-          sessionStorage.setItem(GOOGLE_ID_TOKEN_KEY, idToken);
-        } catch (e) {}
-      }
-
-      (window as any).SYNAPSE_GOOGLE_SESSION = {
-        accessToken: token,
-        idToken,
-        user: result.user,
-      };
-
-      const persistedData: PersistedUser = {
-        uid: result.user.uid,
-        email: result.user.email,
-        displayName: result.user.displayName,
-        photoURL: result.user.photoURL,
-        providerId: 'google.com',
-        lastLoginAt: Date.now(),
-      };
-
-      setUser(result.user);
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(persistedData));
-      sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(persistedData));
+      await verifyUserAccess(result.user);
     } catch (err: any) {
-      console.error('Erro no login com Google:', err);
-      loginAsGuest('Estudante Synapse');
+      console.error('Erro no login Google:', err);
+      setLoading(false);
+      throw err;
     }
   };
 
-  const loginAsGuest = (customName = 'Concurseiro Synapse') => {
-    const guestUser: PersistedUser = {
-      uid: `guest-${Date.now()}`,
-      email: 'estudante@synapse.app',
-      displayName: customName,
-      photoURL: null,
-      isGuest: true,
-      lastLoginAt: Date.now(),
-    };
-    setUser(guestUser);
-    try {
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(guestUser));
-      sessionStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(guestUser));
-    } catch (e) {}
-    setLoading(false);
-  };
-
-  const logout = async () => {
+  const logoutHandler = async () => {
     try {
       localStorage.removeItem(AUTH_STORAGE_KEY);
       localStorage.removeItem(GOOGLE_TOKEN_KEY);
       localStorage.removeItem(GOOGLE_ID_TOKEN_KEY);
-      sessionStorage.removeItem(AUTH_STORAGE_KEY);
-      sessionStorage.removeItem(GOOGLE_TOKEN_KEY);
-      sessionStorage.removeItem(GOOGLE_ID_TOKEN_KEY);
-      delete (window as any).SYNAPSE_GOOGLE_SESSION;
-    } catch (e) {}
-
-    setUser(null);
-    setGoogleAccessToken(null);
-    try {
       await signOut(auth);
-    } catch (e) {}
+    } catch (e) {
+      console.warn('Erro ao deslogar:', e);
+    } finally {
+      setUser(null);
+      setIsAuthorized(false);
+      setIsSuperAdmin(false);
+      setRole('guest');
+      setGoogleAccessToken(null);
+      setLoading(false);
+    }
+  };
+
+  const recheckAccessHandler = async () => {
+    if (user) {
+      setLoading(true);
+      await verifyUserAccess(user);
+    }
   };
 
   return (
@@ -232,14 +199,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       value={{
         user,
         loading,
+        isAuthorized,
+        isSuperAdmin,
+        role,
+        userEmail: user?.email || '',
         googleAccessToken,
-        login,
-        loginAsGuest,
-        logout,
+        login: loginWithGoogleHandler,
+        loginWithGoogle: loginWithGoogleHandler,
+        logout: logoutHandler,
+        recheckAccess: recheckAccessHandler,
       }}
     >
       {children}
     </AuthContext.Provider>
   );
 };
-
