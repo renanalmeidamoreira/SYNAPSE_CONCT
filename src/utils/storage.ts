@@ -1,4 +1,6 @@
 import { CourseData, SimuladoItem, Flashcard, NotesMeta, MaterialItem } from '../types';
+import { doc, getDoc, setDoc, collection, getDocs, writeBatch, deleteDoc } from 'firebase/firestore';
+import { db, auth } from '../lib/firebase';
 
 const STORAGE_KEY_COURSES = 'synapse_courses_v5';
 const STORAGE_KEY_ACTIVE = 'synapse_active_course_v5';
@@ -61,15 +63,11 @@ export function deleteCourse(id: string) {
     setActiveCourseId(null);
   }
   
-  import('./firebase').then(({ auth, db }) => {
-    const user = auth.currentUser;
-    if (user) {
-      import('firebase/firestore').then(({ doc, deleteDoc }) => {
-        deleteDoc(doc(db, 'users', user.uid, 'courses', id)).catch(e => console.warn('Delete course doc offline or failed:', e));
-        deleteDoc(doc(db, 'users', user.uid, 'meta', id)).catch(e => console.warn('Delete course meta offline or failed:', e));
-      }).catch(e => console.warn('Firestore import failed:', e));
-    }
-  }).catch(e => console.warn('Firebase import failed:', e));
+  const user = auth.currentUser;
+  if (user) {
+    deleteDoc(doc(db, 'users', user.uid, 'courses', id)).catch(e => console.warn('Delete course doc offline or failed:', e));
+    deleteDoc(doc(db, 'users', user.uid, 'meta', id)).catch(e => console.warn('Delete course meta offline or failed:', e));
+  }
 }
 
 // Active course ID management
@@ -517,9 +515,6 @@ E - Eficiência: Busca por qualidade, presteza e rendimento funcional.`,
   }
 }
 
-import { doc, getDoc, setDoc, collection, getDocs, writeBatch } from 'firebase/firestore';
-import { db } from './firebase';
-
 export async function syncToFirestore(uid: string) {
   try {
     const courses = getCoursesFromStorage();
@@ -581,8 +576,6 @@ export async function loadFromFirestore(uid: string) {
     console.warn('Error loading from Firestore (client may be offline):', error);
   }
 }
-
-import { auth } from './firebase';
 
 export function triggerSync() {
   const user = auth.currentUser;

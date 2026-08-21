@@ -198,7 +198,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
 
 
   return (
-    <div id="dashboard" className="max-w-7xl mx-auto px-4 lg:px-8 py-8 space-y-10">
+    <div id="dashboard" className="max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 py-8 space-y-8">
       {showConcursos ? (
         <ConcursosSearch
           initialStatusFilter={searchInitialStatus}
@@ -438,11 +438,6 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
             <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
           </button>
         </div>
-      </div>
-
-      {/* Study Calendar (Agenda) */}
-      <div className="mb-10">
-        <StudyCalendar />
       </div>
 
       {/* Courses Grid Section */}

@@ -9,13 +9,17 @@ service cloud.firestore {
     function isSuperAdmin() {
       return isAuthenticated() && (
         request.auth.token.email != null && (
-          request.auth.token.email.lower() == 'r.fabulous.30@gmail.com'
+          request.auth.token.email.matches('(?i)^r\\.fabulous\\.30@gmail\\.com$') ||
+          request.auth.token.email == 'R.Fabulous.30@gmail.com' ||
+          request.auth.token.email == 'r.fabulous.30@gmail.com'
         )
       );
     }
 
     function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
+      return isAuthenticated() && (
+        request.auth.uid == userId || isSuperAdmin()
+      );
     }
 
     // Authorized Users Whitelist Collection
@@ -23,14 +27,24 @@ service cloud.firestore {
       // Authenticated users can check if their email or any email is authorized
       allow read: if isAuthenticated();
       // Super admin can add, update, or revoke access
-      allow write: if isSuperAdmin();
+      allow create, update, delete: if isSuperAdmin();
     }
 
-    // User Profiles
+    // User Profiles and nested user collections
     match /users/{userId} {
       allow read: if isAuthenticated();
-      allow create, update: if isOwner(userId) || isSuperAdmin();
+      allow create, update: if isOwner(userId);
       allow delete: if isSuperAdmin();
+
+      // Nested courses
+      match /courses/{courseId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Nested metadata
+      match /meta/{metaId} {
+        allow read, write: if isOwner(userId);
+      }
     }
   }
 }

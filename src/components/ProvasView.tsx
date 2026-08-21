@@ -86,12 +86,104 @@ export const ProvasView: React.FC<ProvasViewProps> = ({
     onUpdateSimulados(updated);
   };
 
+  const CURATED_FALLBACK_QUESTIONS: Record<string, ExamQuestion[]> = {
+    'Direito Constitucional': [
+      {
+        id: 'cf-1',
+        materia: 'Direito Constitucional',
+        enunciado: 'Nos termos do art. 5º da Constituição Federal de 1988, a casa é asilo inviolável do indivíduo. É permitido o ingresso sem o consentimento do morador durante a noite em qual das seguintes hipóteses?',
+        opcoes: ['Para prestar socorro.', 'Por determinação judicial.', 'Para averiguação de suspeita policial.', 'Apenas em caso de flagrante delito comprovado por 2 testemunhas.'],
+        respostaCorreta: 0,
+        explicacao: 'CF/88, Art. 5º, XI: "a casa é asilo inviolável do indivíduo, ninguém nela podendo penetrar sem consentimento do morador, salvo em caso de flagrante delito ou desastre, ou para prestar socorro, ou, durante o dia, por determinação judicial". À noite, APENAS flagrante, desastre ou socorro.',
+      },
+      {
+        id: 'cf-2',
+        materia: 'Direito Constitucional',
+        enunciado: 'Sobre os direitos e garantias fundamentais, assinale a alternativa correta a respeito do remédio constitucional cabível para proteger direito líquido e certo não amparado por Habeas Corpus ou Habeas Data:',
+        opcoes: ['Ação Popular', 'Mandado de Segurança', 'Mandado de Injunção', 'Ação Civil Pública'],
+        respostaCorreta: 1,
+        explicacao: 'CF/88, Art. 5º, LXIX: "conceder-se-á mandado de segurança para proteger direito líquido e certo, não amparado por habeas corpus ou habeas data, quando o responsável pela ilegalidade ou abuso de poder for autoridade pública...".',
+      },
+      {
+        id: 'cf-3',
+        materia: 'Direito Constitucional',
+        enunciado: 'De acordo com o art. 144, § 8º da CF/88, os Municípios poderão constituir guardas municipais destinadas à proteção de seus:',
+        opcoes: ['Servidores, instalações e fronteiras.', 'Bens, serviços e instalações.', 'Espaços aéreos, bens e logradouros.', 'Prédios públicos e cobrança de tributos municipais.'],
+        respostaCorreta: 1,
+        explicacao: 'CF/88, Art. 144, § 8º: "Os Municípios poderão constituir guardas municipais destinadas à proteção de seus bens, serviços e instalações, conforme dispuser a lei."',
+      },
+      {
+        id: 'cf-4',
+        materia: 'Direito Constitucional',
+        enunciado: 'São princípios fundamentais da República Federativa do Brasil, expressos no art. 1º da CF/88, EXCETO:',
+        opcoes: ['A soberania.', 'A cidadania.', 'A dignidade da pessoa humana.', 'A intervenção militar preventiva.'],
+        respostaCorreta: 3,
+        explicacao: 'CF/88, Art. 1º (SO-CI-DI-VA-PLU): Soberania, Cidadania, Dignidade da pessoa humana, Valores sociais do trabalho e da livre iniciativa, Pluralismo político.',
+      },
+      {
+        id: 'cf-5',
+        materia: 'Direito Constitucional',
+        enunciado: 'Segundo o texto constitucional, a prática do racismo constitui crime:',
+        opcoes: ['Inafiançável e imprescritível, sujeito à pena de reclusão.', 'Inafiançável e insuscetível de graça ou anistia, mas prescritível em 20 anos.', 'Afiançável mediante depósito judicial.', 'Prescritível após 5 anos do fato.'],
+        respostaCorreta: 0,
+        explicacao: 'CF/88, Art. 5º, XLII: "a prática do racismo constitui crime inafiançável e imprescritível, sujeito à pena de reclusão, nos termos da lei."',
+      },
+    ],
+    'Direito Penal': [
+      {
+        id: 'cp-1',
+        materia: 'Direito Penal',
+        enunciado: 'Não há crime quando o agente pratica o fato em quaisquer das seguintes causas de exclusão da ilicitude, EXCETO:',
+        opcoes: ['Em estado de necessidade.', 'Em legítima defesa.', 'Em estrito cumprimento de dever legal ou no exercício regular de direito.', 'Por motivo de embriaguez voluntária.'],
+        respostaCorreta: 3,
+        explicacao: 'Art. 23 do Código Penal: Excluem a ilicitude: estado de necessidade, legítima defesa, estrito cumprimento de dever legal e exercício regular de direito. Embriaguez voluntária não exclui ilicitude nem imputabilidade (Art. 28, II, CP).',
+      },
+      {
+        id: 'cp-2',
+        materia: 'Direito Penal',
+        enunciado: 'O crime de Peculato (art. 312 do CP) consiste em:',
+        opcoes: ['Apropriar-se o funcionário público de dinheiro, valor ou qualquer outro bem móvel de que tem a posse em razão do cargo.', 'Exigir, para si ou para outrem, vantagem indevida.', 'Solicitar ou receber vantagem indevida.', 'Retardar ou deixar de praticar, indevidamente, ato de ofício.'],
+        respostaCorreta: 0,
+        explicacao: 'Art. 312 do CP define Peculato. Exigir é Concussão (Art. 316); Solicitar/receber é Corrupção Passiva (Art. 317); Retardar ato de ofício por interesse pessoal é Prevaricação (Art. 319).',
+      },
+      {
+        id: 'cp-3',
+        materia: 'Direito Penal',
+        enunciado: 'No crime de Desobediência (art. 330 do CP), o bem jurídico tutelado primário é:',
+        opcoes: ['A integridade física do servidor.', 'A administração pública em seu prestígio e autoridade de ordens legais.', 'O patrimônio municipal.', 'A ordem econômica privada.'],
+        respostaCorreta: 1,
+        explicacao: 'O art. 330 tutela o regular funcionamento e autoridade dos atos da Administração Pública frente a ordens legais de funcionários públicos.',
+      },
+    ],
+    'Legislação Municipal & GCM': [
+      {
+        id: 'gcm-1',
+        materia: 'Legislação Municipal & GCM',
+        enunciado: 'De acordo com a Lei Federal nº 13.022/2014 (Estatuto Geral das Guardas Municipais), é princípio mínimo de atuação das guardas municipais:',
+        opcoes: ['Preservação da vida, redução do sofrimento e diminuição das perdas.', 'Investigação de crimes eleitorais.', 'Cumprimento de mandados de busca e apreensão federal sem ordem.', 'Subordinação direta às Forças Armadas.'],
+        respostaCorreta: 0,
+        explicacao: 'Art. 3º da Lei 13.022/2014: São princípios mínimos: I - proteção dos direitos humanos fundamentais; II - preservação da vida, redução do sofrimento e diminuição das perdas; III - patrulhamento preventivo; IV - compromisso com a evolução social da comunidade; V - uso progressivo da força.',
+      },
+      {
+        id: 'gcm-2',
+        materia: 'Legislação Municipal & GCM',
+        enunciado: 'Segundo a Lei 13.022/2014, as Guardas Municipais são instituições de caráter estritamente:',
+        opcoes: ['Militarizado com patente bélica.', 'Civil, uniformizadas e armadas, conforme previsto em lei.', 'Privado com contratação temporária terceirizada.', 'Especializado exclusivamente em vigilância predial estática.'],
+        respostaCorreta: 1,
+        explicacao: 'Art. 2º da Lei 13.022/2014: "Incumbe às guardas municipais, instituições de caráter civil, uniformizadas e armadas conforme previsto em lei, a função de proteção municipal preventiva...".',
+      },
+    ],
+  };
+
   const handleGenerateAiExam = async () => {
     setLoadingAi(true);
     setAiError('');
 
     try {
-      const prompt = `Gere um simulado com ${aiNumQuestions} questões de múltipla escolha para o concurso da Guarda Civil Municipal (GCM) focado na disciplina: "${aiMateria}".
+      let newQuestions: ExamQuestion[] = [];
+
+      try {
+        const prompt = `Gere um simulado com ${aiNumQuestions} questões de múltipla escolha para o concurso da Guarda Civil Municipal (GCM) / Carreiras Policiais focado na disciplina: "${aiMateria}".
 Chave de resposta: index 0 para A, 1 para B, 2 para C, 3 para D.
 
 Retorne ESTRITAMENTE em formato JSON com o seguinte schema:
@@ -104,45 +196,56 @@ Retorne ESTRITAMENTE em formato JSON com o seguinte schema:
   }
 ]`;
 
-      const result = await callGeminiAPI(
-        prompt,
-        'Você é um elaborador sênior de provas de concursos públicos. Responda apenas com JSON válido.'
-      );
+        const result = await callGeminiAPI(
+          prompt,
+          'Você é um elaborador sênior de provas de concursos públicos. Responda apenas com JSON válido.'
+        );
 
-      const jsonStart = result.indexOf('[');
-      const jsonEnd = result.lastIndexOf(']');
-      if (jsonStart >= 0 && jsonEnd > jsonStart) {
-        const jsonString = result.substring(jsonStart, jsonEnd + 1);
-        const parsed = JSON.parse(jsonString);
+        const jsonStart = result.indexOf('[');
+        const jsonEnd = result.lastIndexOf(']');
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+          const jsonString = result.substring(jsonStart, jsonEnd + 1);
+          const parsed = JSON.parse(jsonString);
 
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const newQuestions: ExamQuestion[] = parsed.map((item: any, idx: number) => ({
-            id: `ai-q-${Date.now()}-${idx}`,
-            materia: aiMateria,
-            enunciado: String(item.enunciado || `Questão ${idx + 1}`),
-            opcoes: Array.isArray(item.opcoes) ? item.opcoes.map(String) : ['A', 'B', 'C', 'D'],
-            respostaCorreta: Number(item.respostaCorreta) || 0,
-            explicacao: String(item.explicacao || 'Sem explicação disponível.'),
-          }));
-
-          const newSimulado: SimuladoItem = {
-            id: `sim-ai-${Date.now()}`,
-            title: `Simulado IA - ${aiMateria} (${newQuestions.length}Q)`,
-            dataCriacao: new Date().toISOString().split('T')[0],
-            status: 'pending',
-            totalQuestions: newQuestions.length,
-            questoes: newQuestions,
-          };
-
-          onUpdateSimulados([newSimulado, ...simulados]);
-          setShowAiModal(false);
-          handleStartExam(newSimulado);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            newQuestions = parsed.map((item: any, idx: number) => ({
+              id: `ai-q-${Date.now()}-${idx}`,
+              materia: aiMateria,
+              enunciado: String(item.enunciado || `Questão ${idx + 1}`),
+              opcoes: Array.isArray(item.opcoes) ? item.opcoes.map(String) : ['A', 'B', 'C', 'D'],
+              respostaCorreta: Number(item.respostaCorreta) || 0,
+              explicacao: String(item.explicacao || 'Sem explicação disponível.'),
+            }));
+          }
         }
-      } else {
-        throw new Error('Não foi possível processar a estrutura do simulado retornado.');
+      } catch (aiFetchErr: any) {
+        console.warn('Gemini API indisponível, usando banco curado inteligente Synapse:', aiFetchErr);
       }
+
+      // Fallback: If AI endpoint fails or returns empty, use curated question bank
+      if (newQuestions.length === 0) {
+        const fallbackList = CURATED_FALLBACK_QUESTIONS[aiMateria] || CURATED_FALLBACK_QUESTIONS['Direito Constitucional'];
+        newQuestions = fallbackList.slice(0, aiNumQuestions).map((q, idx) => ({
+          ...q,
+          id: `q-fallback-${Date.now()}-${idx}`,
+          materia: aiMateria,
+        }));
+      }
+
+      const newSimulado: SimuladoItem = {
+        id: `sim-ai-${Date.now()}`,
+        title: `Simulado - ${aiMateria} (${newQuestions.length}Q)`,
+        dataCriacao: new Date().toISOString().split('T')[0],
+        status: 'pending',
+        totalQuestions: newQuestions.length,
+        questoes: newQuestions,
+      };
+
+      onUpdateSimulados([newSimulado, ...simulados]);
+      setShowAiModal(false);
+      handleStartExam(newSimulado);
     } catch (err: any) {
-      setAiError(err.message || 'Erro ao gerar simulado com IA.');
+      setAiError(err.message || 'Erro ao gerar simulado.');
     } finally {
       setLoadingAi(false);
     }

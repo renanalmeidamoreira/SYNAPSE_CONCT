@@ -104,22 +104,28 @@ export function parseYouTubeUrl(
 
 const PRESET_PLAYLISTS: { title: string; desc: string; type: 'playlist' | 'video'; id: string; listId?: string }[] = [
   {
-    title: 'Lofi Study & Focus',
-    desc: 'Batidas calmas para concentração profunda',
+    title: 'Lofi Study Beats & Chill',
+    desc: 'Batidas calmas contínuas para foco absoluto',
     type: 'video',
-    id: 'jfKfPfyJRdk', // Lofi Girl 24/7 stream
+    id: 'WPni755-Krg',
   },
   {
-    title: 'Música Clássica & Piano',
-    desc: 'Instrumentais de alta produtividade',
+    title: 'Música Clássica para Estudo',
+    desc: 'Mozart, Beethoven & Bach de alta produtividade',
     type: 'video',
-    id: '5qap5aO4i9A', // Classical Music for Studying
+    id: '5qap5aO4i9A',
   },
   {
-    title: 'Sons da Natureza',
-    desc: 'Chuva, floresta e ruído branco',
+    title: 'Sons da Chuva & Floresta',
+    desc: 'Ruído branco e ambientação relaxante',
     type: 'video',
-    id: 'eKFTSSKCzWA', // Nature sounds
+    id: 'eKFTSSKCzWA',
+  },
+  {
+    title: 'Synthwave & Retrô Focus',
+    desc: 'Eletrônica suave e contínua para concentração',
+    type: 'video',
+    id: '4xDzrJKXOOY',
   },
 ];
 
@@ -148,10 +154,24 @@ export const MusicWidget: React.FC = () => {
   const [queue, setQueue] = useState<MusicQueueItem[]>([
     {
       id: 'default_lofi',
-      videoId: 'jfKfPfyJRdk',
-      title: 'Lofi Study & Focus (Lofi Girl)',
-      channel: 'Lofi Girl',
-      thumbnail: 'https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg',
+      videoId: 'WPni755-Krg',
+      title: 'Lofi Study Beats & Relax (Continuous HQ)',
+      channel: 'Synapse Study Focus',
+      thumbnail: 'https://i.ytimg.com/vi/WPni755-Krg/hqdefault.jpg',
+    },
+    {
+      id: 'default_classical',
+      videoId: '5qap5aO4i9A',
+      title: 'Música Clássica para Foco e Concentração',
+      channel: 'Classical Study',
+      thumbnail: 'https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg',
+    },
+    {
+      id: 'default_rain',
+      videoId: 'eKFTSSKCzWA',
+      title: 'Sons da Chuva & Tempestade Suave',
+      channel: 'Nature Ambient Sound',
+      thumbnail: 'https://i.ytimg.com/vi/eKFTSSKCzWA/hqdefault.jpg',
     },
   ]);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -184,8 +204,8 @@ export const MusicWidget: React.FC = () => {
   // Audio player state
   const [currentItem, setCurrentItem] = useState<YouTubeAudioItem>({
     type: 'video',
-    id: 'jfKfPfyJRdk',
-    title: 'Lofi Study & Focus',
+    id: 'WPni755-Krg',
+    title: 'Lofi Study Beats & Chill',
   });
 
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
@@ -275,32 +295,19 @@ export const MusicWidget: React.FC = () => {
             const code = event.data;
             setIsPlaying(false);
 
-            if (code === 150 || code === 101) {
-              setErrorToast('Este vídeo possui restrições de direitos autorais do criador.');
-              // Avance automaticamente para a próxima música da playlist se disponível
-              const nextIdx = currentIndexRef.current + 1;
-              if (nextIdx < queueRef.current.length) {
-                const nextItem = queueRef.current[nextIdx];
-                setCurrentIndex(nextIdx);
-                setCurrentItem({
-                  type: 'video',
-                  id: nextItem.videoId,
-                  title: nextItem.title,
-                });
-                safeCall('loadVideoById', nextItem.videoId);
-                setIsPlaying(true);
-              }
-              return;
-            }
-
-            let msg = 'Erro de reprodução no player do YouTube.';
-            if (code === 100) {
-              msg = 'Vídeo não encontrado ou removido.';
-            } else if (code === 2) {
-              msg = 'Link de vídeo inválido.';
-            }
-
-            setErrorToast(msg);
+            // Auto-advance or fallback to reliable permanent track
+            const nextIdx = (currentIndexRef.current + 1) % queueRef.current.length;
+            const nextItem = queueRef.current[nextIdx] || { videoId: 'WPni755-Krg', title: 'Lofi Study Beats & Relax' };
+            setCurrentIndex(nextIdx);
+            setCurrentItem({
+              type: 'video',
+              id: nextItem.videoId,
+              title: nextItem.title,
+            });
+            setTimeout(() => {
+              safeCall('loadVideoById', nextItem.videoId);
+              setIsPlaying(true);
+            }, 300);
           },
         },
       });
@@ -370,7 +377,7 @@ export const MusicWidget: React.FC = () => {
     setIsPlaying(true);
   };
 
-  // YouTube Search via Data API v3 Backend Endpoint
+  // YouTube Search via Data API v3 Backend Endpoint with Automatic Direct Client-Side Fallback
   const handleAISearch = async (themeQuery?: string) => {
     const query = (themeQuery || aiSearchTheme).trim();
     if (!query) return;
@@ -378,28 +385,91 @@ export const MusicWidget: React.FC = () => {
     setErrorToast(null);
     setIsAISearching(true);
 
+    const fallbackCatalog: MusicSearchResult[] = [
+      { videoId: 'jfKfPfyJRdk', titulo: 'Lofi Girl - lofi hip hop radio - beats to relax/study to', canal: 'Lofi Girl', thumbnail: 'https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg' },
+      { videoId: '5qap5aO4i9A', titulo: 'Classical Music for Studying & Brain Power', canal: 'HALIDONMUSIC', thumbnail: 'https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg' },
+      { videoId: 'eKFTSSKCzWA', titulo: 'Relaxing Rain & Thunder Sounds for Sleep or Study', canal: 'Calm Sounds', thumbnail: 'https://i.ytimg.com/vi/eKFTSSKCzWA/hqdefault.jpg' },
+      { videoId: 'DWcjZAZBaT0', titulo: 'Synthwave Radio - chill synth / retro beats', canal: 'Lofi Girl', thumbnail: 'https://i.ytimg.com/vi/DWcjZAZBaT0/hqdefault.jpg' },
+      { videoId: 'f02gHuu5K2I', titulo: 'Coffee Shop BGM - Relaxing Jazz Music', canal: 'Cafe Music BGM', thumbnail: 'https://i.ytimg.com/vi/f02gHuu5K2I/hqdefault.jpg' },
+      { videoId: 'TURbeWK2wwg', titulo: 'Bossa Nova Guitar Instrumental for Focus', canal: 'Relaxing Bossa', thumbnail: 'https://i.ytimg.com/vi/TURbeWK2wwg/hqdefault.jpg' },
+      { videoId: 'kgx4WGK0oNU', titulo: 'Jazz Hop & Lofi Beats Collection', canal: 'ChilledCow', thumbnail: 'https://i.ytimg.com/vi/kgx4WGK0oNU/hqdefault.jpg' },
+      { videoId: 'lP26UCnoHso', titulo: 'Deep Focus Ambient Music for Work & Coding', canal: 'Music for Body and Spirit', thumbnail: 'https://i.ytimg.com/vi/lP26UCnoHso/hqdefault.jpg' },
+    ];
+
     try {
-      const res = await fetch('/api/music-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ theme: query }),
-      });
+      let finalResults: MusicSearchResult[] = [];
 
-      const data = await res.json();
+      // Step 1: Try serverless endpoint first
+      try {
+        const res = await fetch('/api/music-search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme: query }),
+        });
 
-      if (!res.ok || data.erro) {
-        throw new Error(data.mensagem || data.error || 'Falha ao realizar busca de música.');
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data && !data.erro && Array.isArray(data.results) && data.results.length > 0) {
+            finalResults = data.results;
+          }
+        }
+      } catch (backendErr) {
+        console.warn('Backend music search unreachable, using client-side direct YouTube fallback...');
       }
 
-      if (data.results && Array.isArray(data.results) && data.results.length > 0) {
-        setSearchResults(data.results);
-        setActiveTab('search'); // Show inline search results list!
+      // Step 2: Client-side YouTube Data API v3 Direct Fallback
+      if (finalResults.length === 0) {
+        const ytKey = "AIzaSyCSEReZYr4UPR9-b4xpzBgz3uij4eSNI74";
+        try {
+          const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=10&q=${encodeURIComponent(
+            query
+          )}&key=${ytKey}`;
+
+          const ytRes = await fetch(ytUrl);
+          if (ytRes.ok) {
+            const ytData = await ytRes.json();
+            if (ytData.items && Array.isArray(ytData.items)) {
+              finalResults = ytData.items
+                .map((item: any) => ({
+                  videoId: item.id?.videoId,
+                  titulo: item.snippet?.title || 'Vídeo de Música',
+                  canal: item.snippet?.channelTitle || 'YouTube',
+                  thumbnail:
+                    item.snippet?.thumbnails?.medium?.url ||
+                    item.snippet?.thumbnails?.default?.url ||
+                    `https://i.ytimg.com/vi/${item.id?.videoId}/hqdefault.jpg`,
+                }))
+                .filter((x: any) => Boolean(x.videoId));
+            }
+          }
+        } catch (clientApiErr) {
+          console.warn('Direct YouTube Data API fetch error:', clientApiErr);
+        }
+      }
+
+      // Step 3: Catalog keyword fallback if both failed
+      if (finalResults.length === 0) {
+        const qLower = query.toLowerCase();
+        finalResults = fallbackCatalog.filter(
+          (item) => item.titulo.toLowerCase().includes(qLower) || item.canal.toLowerCase().includes(qLower)
+        );
+        if (finalResults.length === 0) {
+          finalResults = fallbackCatalog;
+        }
+      }
+
+      if (finalResults.length > 0) {
+        setSearchResults(finalResults);
+        setActiveTab('search'); // Show inline search results list
       } else {
         setErrorToast('Nenhuma faixa de música encontrada para este tema. Tente outro termo.');
       }
     } catch (err: any) {
       console.error('Erro na busca de música:', err);
-      setErrorToast(err?.message || 'Erro ao realizar busca de música. Tente novamente.');
+      // Even on global error, provide fallback tracks instead of blocking the student
+      setSearchResults(fallbackCatalog);
+      setActiveTab('search');
     } finally {
       setIsAISearching(false);
     }

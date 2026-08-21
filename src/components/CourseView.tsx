@@ -62,7 +62,7 @@ export const CourseView: React.FC<CourseViewProps> = ({
   const progressPercent = totalMaterials > 0 ? Math.round((completedMaterials / totalMaterials) * 100) : 0;
 
   return (
-    <div id="course-view" className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
+    <div id="course-view" className="max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 py-6 space-y-6">
       {/* Top Navigation & Station Header */}
       <div className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">

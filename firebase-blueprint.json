@@ -71,6 +71,26 @@
         }
       },
       "required": ["uid", "email", "role", "createdAt", "lastLoginAt"]
+    },
+    "userCourses": {
+      "title": "User Course",
+      "description": "Course stations created or modified by the user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" }
+      },
+      "required": ["id", "userId", "title"]
+    },
+    "userMeta": {
+      "title": "User Metadata",
+      "description": "Course metadata such as simulados, flashcards, and notes",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" }
+      },
+      "required": ["userId"]
     }
   },
   "firestore": {
@@ -81,6 +101,14 @@
     "/users/{userId}": {
       "entity": "userProfiles",
       "description": "Collection of user profiles keyed by auth UID"
+    },
+    "/users/{userId}/courses/{courseId}": {
+      "entity": "userCourses",
+      "description": "User specific courses subcollection"
+    },
+    "/users/{userId}/meta/{metaId}": {
+      "entity": "userMeta",
+      "description": "User specific course metadata subcollection"
     }
   }
 }
