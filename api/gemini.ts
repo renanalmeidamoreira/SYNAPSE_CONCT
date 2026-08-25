@@ -1,22 +1,25 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { GoogleGenAI } from '@google/genai';
 
-// Initialize Gemini AI client server-side
 let ai: GoogleGenAI | null = null;
-const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-if (apiKey) {
-  ai = new GoogleGenAI({
-    apiKey: apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
+
+function getAiClient(): GoogleGenAI | null {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return null;
+  if (!ai) {
+    ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
       },
-    },
-  });
+    });
+  }
+  return ai;
 }
 
 export default async function handler(req: any, res: any) {
-  // Handle CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -26,35 +29,39 @@ export default async function handler(req: any, res: any) {
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ erro: true, error: 'Método não permitido.' });
+    return res.status(405).json({
+      success: false,
+      error: {
+        code: 'METHOD_NOT_ALLOWED',
+        message: 'Método não permitido. Utilize POST.',
+      },
+    });
   }
 
   try {
-    const activeKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-    if (!activeKey) {
+    const aiClient = getAiClient();
+    if (!aiClient) {
       return res.status(500).json({
-        erro: true,
-        tipo: 'erro_config',
-        error: 'Chave GEMINI_API_KEY não configurada nas variáveis da Vercel. Adicione GEMINI_API_KEY no painel da Vercel (Settings > Environment Variables).',
-        mensagem: 'Chave GEMINI_API_KEY não configurada nas variáveis da Vercel.',
-      });
-    }
-
-    if (!ai) {
-      ai = new GoogleGenAI({
-        apiKey: activeKey,
-        httpOptions: {
-          headers: {
-            'User-Agent': 'aistudio-build',
-          },
+        success: false,
+        error: {
+          code: 'CONFIG_ERROR',
+          message: 'Chave GEMINI_API_KEY não configurada no ambiente do servidor.',
+          retryable: false,
         },
       });
     }
 
     const { prompt, systemInstruction, responseMimeType, responseSchema } = req.body || {};
 
-    if (!prompt) {
-      return res.status(400).json({ erro: true, error: 'Prompt é obrigatório.' });
+    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_PROMPT',
+          message: 'O campo prompt é obrigatório.',
+          retryable: false,
+        },
+      });
     }
 
     const config: Record<string, any> = {};
@@ -68,15 +75,25 @@ export default async function handler(req: any, res: any) {
       config.responseSchema = responseSchema;
     }
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
+    const response = await aiClient.models.generateContent({
+      model: modelName,
       contents: prompt,
       config: Object.keys(config).length > 0 ? config : undefined,
     });
 
-    return res.status(200).json({ text: response.text || '' });
+    const outputText = response.text || '';
+
+    return res.status(200).json({
+      success: true,
+      text: outputText,
+      data: {
+        text: outputText,
+      },
+    });
   } catch (err: any) {
-    console.error('Erro na API Gemini Vercel:', err);
+    console.error('Erro no processamento da API Gemini:', err);
     const errMessage = String(err?.message || err || '');
     const isQuota =
       err?.status === 429 ||
@@ -85,12 +102,15 @@ export default async function handler(req: any, res: any) {
       errMessage.includes('Quota exceeded');
 
     return res.status(isQuota ? 429 : 500).json({
-      erro: true,
-      tipo: isQuota ? 'quota_excedida' : 'erro_temporario',
-      error: errMessage || 'Erro ao processar requisição com IA Gemini.',
-      mensagem: isQuota
-        ? 'Limite de consultas de IA atingido no momento. Tente novamente em instantes.'
-        : 'Erro ao comunicar com o modelo de IA Gemini.',
+      success: false,
+      error: {
+        code: isQuota ? 'QUOTA_EXCEEDED' : 'AI_PROVIDER_ERROR',
+        message: isQuota
+          ? 'Limite temporário de requisições de IA atingido. Tente novamente em instantes.'
+          : 'Não foi possível consultar o assistente de IA agora.',
+        retryable: isQuota || err?.status >= 500,
+      },
     });
   }
 }
+

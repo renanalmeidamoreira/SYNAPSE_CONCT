@@ -1,7 +1,7 @@
 /**
- * Resilient Gemini API client with Exponential Backoff, Vercel Serverless proxy, Client-Side Fallback & Pedagogical Engine
+ * Resilient Gemini Client with Safe HTTP Communication & Pedagogical Fallback Engine
+ * Security: Strictly server-side authentication (No client-side API keys exposed)
  */
-import { GoogleGenAI } from '@google/genai';
 
 export interface GeminiRetryOptions {
   maxRetries?: number;
@@ -9,26 +9,8 @@ export interface GeminiRetryOptions {
   backoffFactor?: number;
 }
 
-let clientSideAi: GoogleGenAI | null = null;
-
-function getClientSideAi(): GoogleGenAI | null {
-  if (clientSideAi) return clientSideAi;
-  const clientKey =
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) ||
-    (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
-    'AIzaSyCSEReZYr4UPR9-b4xpzBgz3uij4eSNI74';
-  if (clientKey) {
-    try {
-      clientSideAi = new GoogleGenAI({ apiKey: clientKey });
-    } catch (e) {
-      console.warn('Erro ao instanciar GoogleGenAI no cliente:', e);
-    }
-  }
-  return clientSideAi;
-}
-
 /**
- * Motor pedagógico de contingência para suporte contínuo ao estudante caso haja oscilação de rede/cota
+ * Motor pedagógico fundamentado para suporte contínuo ao concurseiro caso haja indisponibilidade transitória
  */
 function getPedagogicalFallbackResponse(prompt: string, context?: string): string {
   const p = prompt.toLowerCase();
@@ -47,6 +29,20 @@ Aqui está uma estrutura recomendada com ciclo intercalado para potencializar su
 - 🗓️ **Domingo (Revisão Leve & TAF):** Revisão de Flashcards + Preparação física leve para o TAF.
 
 💡 *Dica de Ouro:* Use a técnica Pomodoro de 25/5 com o player de música em som instrumental para manter foco absoluto!`;
+  }
+
+  if (p.includes('legalidade') || p.includes('limpe') || p.includes('administrativo') || p.includes('ato')) {
+    return `🏛️ **Princípio da Legalidade no Direito Administrativo:**
+
+- **Para o Particular (Art. 5º, II da CF/88):** Princípio da autonomia da vontade. "Ninguém será obrigado a fazer ou deixar de fazer alguma coisa senão em virtude de lei". Ou seja, o que a lei não proíbe, é permitido.
+- **Para a Administração Pública (Art. 37, caput da CF/88):** Princípio da legalidade estrita. O agente público só pode agir quando e como a lei expressamente autorizar ou determinar. Não há vontade pessoal do administrador.
+
+💡 *Mnemônico LIMPE (Art. 37 da CF/88):*
+- **L**egalidade
+- **I**mpessoalidade
+- **M**oralidade
+- **P**ublicidade
+- **E**ficiência (incluída pela EC 19/98)`;
   }
 
   if (p.includes('penal') || p.includes('crime') || p.includes('ilicitude') || p.includes('peculato')) {
@@ -82,28 +78,14 @@ Aqui está uma estrutura recomendada com ciclo intercalado para potencializar su
    - **Ação Popular:** Qualquer cidadão contra atos lesivos ao patrimônio público ou moralidade.`;
   }
 
-  if (p.includes('gcm') || p.includes('guarda') || p.includes('13.022') || p.includes('segurança')) {
-    return `🛡️ **Estatuto Geral das Guardas Municipais (Lei Federal 13.022/2014):**
+  return `📚 **Orientação Pedagógica SYNAPSE:**
 
-- **Natureza:** Instituições de caráter civil, uniformizadas e armadas conforme previsto em lei.
-- **Princípios Mínimos de Atuação (Art. 3º):**
-  1. Proteção dos direitos humanos fundamentais e da cidadania;
-  2. Preservação da vida, redução do sofrimento e diminuição das perdas;
-  3. Patrulhamento preventivo;
-  4. Compromisso com a evolução social da comunidade;
-  5. Uso progressivo da força.
-- **Competência Geral (Art. 4º):** Proteção de bens, serviços, logradouros públicos e instalações do Município.`;
-  }
+Para maximizar sua preparação neste tópico:
+1. **Compreensão Teórica:** Faça leitura atenta da letra da lei (a letra da lei responde por mais de 70% das questões de provas objetivas).
+2. **Fixação Ativa:** Resolva questões da sua banca examinadora e registre seus erros para revisão periódica.
+3. **Revisão Espaçada:** Revise os pontos principais em ciclos de 24h, 7 dias e 30 dias.
 
-  return `📚 **Orientação de Estudos SYNAPSE:**
-
-Para dominar este tópico:
-1. **Compreensão Teórica:** Foque na leitura atenta da letra da lei (letra fria da CF/88 e leis especiais representam mais de 70% das questões de concurso).
-2. **Fixação Ativa:** Crie flashcards no SYNAPSE com os conceitos e exceções das normas.
-3. **Simulado Prático:** Resolva pelo menos 15 a 20 questões da sua banca examinadora sobre o assunto.
-4. **Caderno de Erros:** Anote as razões de cada erro para revisão periódica a cada 7 e 15 dias.
-
-Como posso aprofundar mais este ponto para você?`;
+Em que ponto específico posso detalhar mais a explicação para você?`;
 }
 
 export async function callGeminiAPI(
@@ -114,12 +96,14 @@ export async function callGeminiAPI(
   options: GeminiRetryOptions = {}
 ): Promise<string> {
   const maxRetries = options.maxRetries ?? 2;
-  let delay = options.initialDelayMs ?? 800;
+  let delay = options.initialDelayMs ?? 1000;
   const factor = options.backoffFactor ?? 2;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      // Step 1: Serverless proxy call
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
+
       const res = await fetch('/api/gemini', {
         method: 'POST',
         headers: {
@@ -131,47 +115,53 @@ export async function callGeminiAPI(
           responseMimeType,
           responseSchema,
         }),
-      }).catch(() => null);
+        signal: controller.signal,
+      }).catch((fetchErr) => {
+        console.warn('[Gemini Client] Erro de rede na requisição:', fetchErr);
+        return null;
+      });
+
+      clearTimeout(timeoutId);
 
       if (res) {
         const contentType = res.headers.get('content-type') || '';
-        if (res.ok && contentType.includes('application/json')) {
-          const data = await res.json().catch(() => ({}));
-          if (data && data.text) {
-            return data.text;
+        let data: any = null;
+
+        if (contentType.includes('application/json')) {
+          try {
+            data = await res.json();
+          } catch (jsonErr) {
+            console.warn('[Gemini Client] Resposta JSON malformada da API:', jsonErr);
           }
+        }
+
+        if (res.ok && data) {
+          const generatedText = data?.data?.text || data?.text;
+          if (typeof generatedText === 'string' && generatedText.length > 0) {
+            return generatedText;
+          }
+        }
+
+        // Handle 429 Quota Exceeded
+        if (res.status === 429 || data?.error?.code === 'QUOTA_EXCEEDED') {
+          console.warn('[Gemini Client] Limite de cota atingido na API.');
+          // Do not retry 429, fall directly to pedagogical engine
+          return getPedagogicalFallbackResponse(prompt, systemInstruction);
+        }
+
+        // Retryable status code (5xx or temporary)
+        if (res.status >= 500 && attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          delay *= factor;
+          continue;
         }
       }
 
-      // Step 2: Direct Client-Side SDK Fallback
-      const clientAi = getClientSideAi();
-      if (clientAi) {
-        try {
-          const config: Record<string, any> = {};
-          if (systemInstruction) config.systemInstruction = systemInstruction;
-          if (responseMimeType) config.responseMimeType = responseMimeType;
-          if (responseSchema) config.responseSchema = responseSchema;
-
-          const directRes = await clientAi.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: Object.keys(config).length > 0 ? config : undefined,
-          });
-
-          if (directRes && directRes.text) {
-            return directRes.text;
-          }
-        } catch (clientErr) {
-          console.warn('[Gemini Client Direct] tentativa falhou:', clientErr);
-        }
-      }
-
-      // If json format was requested and failed, return fallback json
-      if (responseMimeType === 'application/json' || (responseSchema && Array.isArray(responseSchema))) {
+      // If attempt reached maxRetries or JSON format is strictly required
+      if (responseMimeType === 'application/json') {
         return '[]';
       }
 
-      // Step 3: Pedagogical Engine Fallback
       return getPedagogicalFallbackResponse(prompt, systemInstruction);
     } catch (err: any) {
       if (attempt < maxRetries) {
@@ -186,8 +176,7 @@ export async function callGeminiAPI(
   return getPedagogicalFallbackResponse(prompt, systemInstruction);
 }
 
-// Expose globally for window.callGeminiAPI
+// Global hook for integration
 if (typeof window !== 'undefined') {
   (window as any).callGeminiAPI = callGeminiAPI;
 }
-

@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { CourseData } from '../types';
 import { extractTextFromPDF } from '../utils/pdfParser';
-import { StudyCalendar } from './StudyCalendar';
-import { ExternalLink, Headphones, FileCode2, Search } from 'lucide-react';
+import { StudyCalendar, StudyAgendaCompactWidget } from './StudyCalendar';
+import { ExternalLink, Headphones, FileCode2, Search, X } from 'lucide-react';
 import { ConcursosSearch } from './ConcursosSearch';
 import { callGeminiAPI } from '../utils/gemini';
 import {
@@ -60,6 +60,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showConcursos, setShowConcursos] = useState(false);
+  const [showFullCalendarModal, setShowFullCalendarModal] = useState(false);
 
   // NotebookLM URL state
   const [notebookUrl, setNotebookUrl] = useState(() => {
@@ -440,6 +441,11 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
         </div>
       </div>
 
+      {/* Study Agenda Compact Widget */}
+      <div className="mb-6">
+        <StudyAgendaCompactWidget onOpenFullCalendar={() => setShowFullCalendarModal(true)} />
+      </div>
+
       {/* Courses Grid Section */}
       <div className="mb-6 flex items-center justify-between">
         <div>
@@ -734,6 +740,24 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Full Calendar Modal */}
+      {showFullCalendarModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative">
+            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
+              <h3 className="text-base font-bold text-white">Agenda de Estudos & Cronograma</h3>
+              <button
+                onClick={() => setShowFullCalendarModal(false)}
+                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <StudyCalendar />
           </div>
         </div>
       )}

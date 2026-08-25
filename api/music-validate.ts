@@ -12,7 +12,7 @@ export default async function handler(req: any, res: any) {
     let idToTest = videoId;
 
     if (!idToTest && url && typeof url === 'string') {
-      const match = url.match(/(?:v=|\/embed\/|\/watch\?v=|youtu\.be\/)([^#&?]*)/);
+      const match = url.match(/(?:v=|\/embed\/|\/watch\?v=|youtu\.be\/|\/shorts\/|\/live\/)([^#&?]*)/);
       if (match && match[1] && match[1].length === 11) {
         idToTest = match[1];
       }
@@ -25,17 +25,19 @@ export default async function handler(req: any, res: any) {
     let isEmbeddable = false;
     let videoTitle = '';
 
-    const ytKey = "AIzaSyCSEReZYr4UPR9-b4xpzBgz3uij4eSNI74";
-    if (ytKey) {
+    const ytApiKey = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
+    if (ytApiKey) {
       try {
         const apiRes = await fetch(
-          `https://www.googleapis.com/youtube/v3/videos?part=status,snippet&id=${idToTest}&key=${ytKey}`
+          `https://www.googleapis.com/youtube/v3/videos?part=status,snippet&id=${idToTest}&key=${ytApiKey}`
         );
-        const apiData = await apiRes.json();
-        if (apiRes.ok && apiData.items && apiData.items.length > 0) {
-          const item = apiData.items[0];
-          isEmbeddable = item.status?.embeddable === true;
-          videoTitle = item.snippet?.title || '';
+        if (apiRes.ok) {
+          const apiData = await apiRes.json();
+          if (apiData.items && apiData.items.length > 0) {
+            const item = apiData.items[0];
+            isEmbeddable = item.status?.embeddable === true;
+            videoTitle = item.snippet?.title || '';
+          }
         }
       } catch (err) {
         // Fallback

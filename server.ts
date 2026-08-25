@@ -40,7 +40,7 @@ async function startServer() {
       config?: any;
     }
   ): Promise<{ text: string }> {
-    const modelName = params.model || 'gemini-3.6-flash';
+    const modelName = params.model || 'gemini-2.5-flash';
     let attempts = 0;
     const maxAttempts = 2; // 1 initial + 1 retry for transient network errors (never retry on 429)
 
@@ -128,12 +128,12 @@ async function startServer() {
       }
 
       const response = await callGeminiWithResilience(ai, {
-        model: 'gemini-3.6-flash',
+        model: 'gemini-2.5-flash',
         contents: prompt,
         config: Object.keys(config).length > 0 ? config : undefined,
       });
 
-      return res.json({ text: response.text });
+      return res.json({ success: true, text: response.text, data: { text: response.text } });
     } catch (err: any) {
       console.error('Erro na API Gemini:', err);
       const isQuota = err.tipo === 'quota_excedida' || err.isQuota;

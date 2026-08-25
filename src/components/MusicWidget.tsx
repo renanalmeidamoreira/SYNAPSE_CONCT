@@ -418,37 +418,7 @@ export const MusicWidget: React.FC = () => {
         console.warn('Backend music search unreachable, using client-side direct YouTube fallback...');
       }
 
-      // Step 2: Client-side YouTube Data API v3 Direct Fallback
-      if (finalResults.length === 0) {
-        const ytKey = "AIzaSyCSEReZYr4UPR9-b4xpzBgz3uij4eSNI74";
-        try {
-          const ytUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=10&q=${encodeURIComponent(
-            query
-          )}&key=${ytKey}`;
-
-          const ytRes = await fetch(ytUrl);
-          if (ytRes.ok) {
-            const ytData = await ytRes.json();
-            if (ytData.items && Array.isArray(ytData.items)) {
-              finalResults = ytData.items
-                .map((item: any) => ({
-                  videoId: item.id?.videoId,
-                  titulo: item.snippet?.title || 'Vídeo de Música',
-                  canal: item.snippet?.channelTitle || 'YouTube',
-                  thumbnail:
-                    item.snippet?.thumbnails?.medium?.url ||
-                    item.snippet?.thumbnails?.default?.url ||
-                    `https://i.ytimg.com/vi/${item.id?.videoId}/hqdefault.jpg`,
-                }))
-                .filter((x: any) => Boolean(x.videoId));
-            }
-          }
-        } catch (clientApiErr) {
-          console.warn('Direct YouTube Data API fetch error:', clientApiErr);
-        }
-      }
-
-      // Step 3: Catalog keyword fallback if both failed
+      // Step 2: Catalog keyword fallback if backend did not return results
       if (finalResults.length === 0) {
         const qLower = query.toLowerCase();
         finalResults = fallbackCatalog.filter(
