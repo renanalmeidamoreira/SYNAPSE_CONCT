@@ -11,13 +11,16 @@ import {
   Compass,
   Cpu,
   Loader2,
+  AlertTriangle,
+  UserCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 
 export const LoginScreen: React.FC = () => {
-  const { loginWithGoogle, loading } = useAuth();
+  const { loginWithGoogle, loginAsGuest, loading } = useAuth();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<{ message: string; isPopupBlocked?: boolean } | null>(null);
 
   const handleGoogleLogin = async () => {
     try {
@@ -25,11 +28,36 @@ export const LoginScreen: React.FC = () => {
       setLoginError(null);
       await loginWithGoogle();
     } catch (err: any) {
-      console.error(err);
-      setLoginError(err?.message || 'Falha ao autenticar com a conta Google.');
+      console.error('Falha no login:', err);
+      const code = err?.code || '';
+      const msg = String(err?.message || '');
+
+      if (code === 'auth/popup-blocked' || msg.includes('popup-blocked')) {
+        setLoginError({
+          message:
+            'O navegador ou ambiente bloqueou a janela pop-up de login do Google. Desative o bloqueador de pop-ups ou acesse como Convidado.',
+          isPopupBlocked: true,
+        });
+      } else if (code === 'auth/popup-closed-by-user' || msg.includes('popup-closed-by-user')) {
+        setLoginError({
+          message: 'A janela de autenticação do Google foi fechada antes de concluir.',
+        });
+      } else if (code === 'auth/cancelled-popup-request') {
+        setLoginError({
+          message: 'Processo cancelado. Tente novamente.',
+        });
+      } else {
+        setLoginError({
+          message: err?.message || 'Falha ao autenticar com a conta Google.',
+        });
+      }
     } finally {
       setIsLoggingIn(false);
     }
+  };
+
+  const handleGuestLogin = () => {
+    loginAsGuest();
   };
 
   return (
@@ -74,8 +102,33 @@ export const LoginScreen: React.FC = () => {
           </div>
 
           {loginError && (
-            <div className="p-3.5 rounded-2xl bg-rose-950/60 border border-rose-800/80 text-rose-300 text-xs flex items-center gap-2">
-              <span>{loginError}</span>
+            <div
+              className={`p-4 rounded-2xl border text-xs space-y-2 animate-in fade-in duration-200 ${
+                loginError.isPopupBlocked
+                  ? 'bg-amber-950/60 border-amber-800/80 text-amber-200'
+                  : 'bg-rose-950/60 border-rose-800/80 text-rose-300'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle
+                  className={`w-4 h-4 shrink-0 mt-0.5 ${
+                    loginError.isPopupBlocked ? 'text-amber-400' : 'text-rose-400'
+                  }`}
+                />
+                <span className="leading-relaxed">{loginError.message}</span>
+              </div>
+
+              {loginError.isPopupBlocked && (
+                <div className="pt-2 border-t border-amber-800/40 flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-amber-300/80">Pop-up bloqueado?</span>
+                  <button
+                    onClick={handleGuestLogin}
+                    className="text-[11px] font-bold text-amber-300 hover:text-white underline cursor-pointer"
+                  >
+                    Entrar como Visitante →
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -109,6 +162,14 @@ export const LoginScreen: React.FC = () => {
                 </svg>
               )}
               <span>Entrar com Gmail / Google</span>
+            </button>
+
+            <button
+              onClick={handleGuestLogin}
+              className="w-full py-2.5 px-4 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white font-medium text-xs rounded-2xl transition-all border border-slate-700/60 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Acessar Modo Demonstração / Convidado</span>
             </button>
 
             <div className="pt-2 text-center">

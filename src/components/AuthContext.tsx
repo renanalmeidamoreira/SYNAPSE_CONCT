@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import {
   User,
+  GoogleAuthProvider,
   signInWithPopup,
   signOut,
   onAuthStateChanged,
@@ -31,9 +32,12 @@ export interface AuthContextType {
   googleAccessToken: string | null;
   login: () => Promise<void>;
   loginWithGoogle: () => Promise<void>;
+  loginAsGuest: () => void;
   logout: () => Promise<void>;
   recheckAccess: () => Promise<void>;
 }
+
+const GUEST_STORAGE_KEY = 'synapse_guest_session_active';
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
@@ -45,6 +49,7 @@ const AuthContext = createContext<AuthContextType>({
   googleAccessToken: null,
   login: async () => {},
   loginWithGoogle: async () => {},
+  loginAsGuest: () => {},
   logout: async () => {},
   recheckAccess: async () => {},
 });
@@ -74,6 +79,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyUserAccess = async (currentUser: User | null) => {
     if (!currentUser) {
+      // Verifica se há sessão de convidado salva
+      try {
+        const isGuest = localStorage.getItem(GUEST_STORAGE_KEY);
+        if (isGuest === 'true') {
+          setUser({
+            uid: 'guest_synapse_user',
+            email: 'visitante@synapse.edu.br',
+            displayName: 'Estudante Convidado',
+            photoURL: '',
+            emailVerified: true,
+            isAnonymous: true,
+          } as unknown as User);
+          setIsAuthorized(true);
+          setIsSuperAdmin(false);
+          setRole('student');
+          setLoading(false);
+          return;
+        }
+      } catch (e) {}
+
       setUser(null);
       setIsAuthorized(false);
       setIsSuperAdmin(false);
@@ -145,12 +170,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithGoogleHandler = async () => {
     try {
-      setLoading(true);
-      googleProvider.setCustomParameters({ prompt: 'select_account' });
-      googleProvider.addScope('https://www.googleapis.com/auth/userinfo.profile');
-      googleProvider.addScope('https://www.googleapis.com/auth/userinfo.email');
+      // Remove any prior guest session flag
+      try {
+        localStorage.removeItem(GUEST_STORAGE_KEY);
+      } catch (e) {}
 
-      const result = await signInWithPopup(auth, googleProvider);
+      // Invoke signInWithPopup directly to preserve user gesture context
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      provider.addScope('https://www.googleapis.com/auth/userinfo.profile');
+      provider.addScope('https://www.googleapis.com/auth/userinfo.email');
+
+      const result = await signInWithPopup(auth, provider);
       const credential = (result as any).credential;
       const token = credential?.accessToken || null;
 
@@ -164,9 +195,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await verifyUserAccess(result.user);
     } catch (err: any) {
       console.error('Erro no login Google:', err);
-      setLoading(false);
       throw err;
     }
+  };
+
+  const loginAsGuestHandler = () => {
+    try {
+      localStorage.setItem(GUEST_STORAGE_KEY, 'true');
+    } catch (e) {}
+    setUser({
+      uid: 'guest_synapse_user',
+      email: 'visitante@synapse.edu.br',
+      displayName: 'Estudante Convidado',
+      photoURL: '',
+      emailVerified: true,
+      isAnonymous: true,
+    } as unknown as User);
+    setIsAuthorized(true);
+    setIsSuperAdmin(false);
+    setRole('student');
+    setLoading(false);
   };
 
   const logoutHandler = async () => {
@@ -174,6 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem(AUTH_STORAGE_KEY);
       localStorage.removeItem(GOOGLE_TOKEN_KEY);
       localStorage.removeItem(GOOGLE_ID_TOKEN_KEY);
+      localStorage.removeItem(GUEST_STORAGE_KEY);
       await signOut(auth);
     } catch (e) {
       console.warn('Erro ao deslogar:', e);
@@ -206,6 +255,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         googleAccessToken,
         login: loginWithGoogleHandler,
         loginWithGoogle: loginWithGoogleHandler,
+        loginAsGuest: loginAsGuestHandler,
         logout: logoutHandler,
         recheckAccess: recheckAccessHandler,
       }}
