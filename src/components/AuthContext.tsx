@@ -33,6 +33,7 @@ export interface AuthContextType {
   login: () => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   loginAsGuest: () => void;
+  authorizeYouTube: () => Promise<string | null>;
   logout: () => Promise<void>;
   recheckAccess: () => Promise<void>;
 }
@@ -50,6 +51,7 @@ const AuthContext = createContext<AuthContextType>({
   login: async () => {},
   loginWithGoogle: async () => {},
   loginAsGuest: () => {},
+  authorizeYouTube: async () => null,
   logout: async () => {},
   recheckAccess: async () => {},
 });
@@ -199,6 +201,44 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const authorizeYouTubeHandler = async (): Promise<string | null> => {
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'consent' });
+      provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
+
+      const result = await signInWithPopup(auth, provider);
+      const credential = (result as any).credential;
+      const token = credential?.accessToken || null;
+
+      if (token) {
+        setGoogleAccessToken(token);
+        try {
+          localStorage.setItem(GOOGLE_TOKEN_KEY, token);
+          localStorage.setItem('synapse_youtube_token', token);
+        } catch (e) {}
+      }
+
+      await verifyUserAccess(result.user);
+      return token;
+    } catch (err: any) {
+      const code = err?.code || '';
+      const msg = String(err?.message || '');
+      if (code === 'auth/popup-blocked' || msg.includes('popup-blocked')) {
+        const error = new Error('POPUP_BLOCKED: O navegador bloqueou a janela de autorização do Google/YouTube.');
+        (error as any).code = 'auth/popup-blocked';
+        throw error;
+      }
+      if (code === 'auth/popup-closed-by-user' || msg.includes('popup-closed-by-user')) {
+        const error = new Error('A janela de autorização foi fechada antes de concluir.');
+        (error as any).code = 'auth/popup-closed-by-user';
+        throw error;
+      }
+      console.warn('[YouTube Auth Warning]:', err?.message || err);
+      throw err;
+    }
+  };
+
   const loginAsGuestHandler = () => {
     try {
       localStorage.setItem(GUEST_STORAGE_KEY, 'true');
@@ -256,6 +296,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login: loginWithGoogleHandler,
         loginWithGoogle: loginWithGoogleHandler,
         loginAsGuest: loginAsGuestHandler,
+        authorizeYouTube: authorizeYouTubeHandler,
         logout: logoutHandler,
         recheckAccess: recheckAccessHandler,
       }}

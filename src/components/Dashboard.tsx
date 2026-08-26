@@ -381,62 +381,86 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
         </div>
       </div>
 
-      {/* NotebookLM Discreet Utility Card (Abertura em nova aba sem poluição visual) */}
-      <div className="bg-slate-50/80 dark:bg-slate-900/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-xl bg-amber-500/10 text-amber-500 shrink-0">
-            <Sparkles className="w-4 h-4" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Google NotebookLM</h4>
-              <span className="text-[10px] text-slate-400 font-medium">Abertura em aba externa</span>
+      {/* Hub de Ferramentas com IA Generativa (Veo 3, Transcrição de Voz, NotebookLM) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+        {/* Veo 3 Studio */}
+        <div className="bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-pink-500/10 text-pink-500 shrink-0">
+              <Sparkles className="w-5 h-5" />
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Acesse seus cadernos oficiais e resumos em áudio diretamente em uma aba dedicada.
-            </p>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Estúdio Veo 3</h4>
+                <span className="text-[9px] bg-pink-500/10 text-pink-500 font-bold px-1.5 py-0.2 rounded-full border border-pink-500/20">
+                  Vídeo IA
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Crie animações e resumos mnemônicos em vídeo 16:9 ou 9:16 para fixação visual.
+              </p>
+            </div>
           </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('open-veo-studio'))}
+            className="w-full text-xs font-bold bg-pink-50 hover:bg-pink-100 text-pink-700 dark:bg-pink-950/40 dark:hover:bg-pink-900/50 dark:text-pink-300 border border-pink-200 dark:border-pink-800/60 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Abrir Estúdio Veo 3</span>
+          </button>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
-          {!isEditingNotebookUrl ? (
-            <button
-              onClick={() => setIsEditingNotebookUrl(true)}
-              className="text-[11px] text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-2 py-1 transition-colors cursor-pointer"
-              title="Personalizar URL de caderno específico"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-            </button>
-          ) : (
-            <div className="flex items-center gap-1.5">
-              <input
-                type="url"
-                value={tempNotebookUrl}
-                onChange={(e) => setTempNotebookUrl(e.target.value)}
-                placeholder="https://notebooklm.google.com/..."
-                className="bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-800 dark:text-slate-200 w-48 focus:outline-hidden"
-              />
-              <button
-                onClick={handleSaveNotebookUrl}
-                className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] px-2.5 py-1 rounded-lg font-bold cursor-pointer"
-              >
-                Salvar
-              </button>
-              <button
-                onClick={() => setIsEditingNotebookUrl(false)}
-                className="text-slate-400 text-[11px] hover:text-slate-600 px-1 cursor-pointer"
-              >
-                ✕
-              </button>
+        {/* Audio Study Transcriber */}
+        <div className="bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-teal-500/10 text-teal-500 shrink-0">
+              <Headphones className="w-5 h-5" />
             </div>
-          )}
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Gravador & Transcritor</h4>
+                <span className="text-[9px] bg-teal-500/10 text-teal-500 font-bold px-1.5 py-0.2 rounded-full border border-teal-500/20">
+                  Voz IA
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Grave suas revisões faladas, treine prova oral e gere anotações estruturadas.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('open-audio-transcriber'))}
+            className="w-full text-xs font-bold bg-teal-500/10 hover:bg-teal-500/20 text-teal-700 dark:text-teal-300 border border-teal-300 dark:border-teal-800/60 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <Headphones className="w-3.5 h-3.5" />
+            <span>Gravar Anotação por Voz</span>
+          </button>
+        </div>
 
+        {/* NotebookLM Bridge */}
+        <div className="bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500 shrink-0">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Google NotebookLM</h4>
+                <span className="text-[9px] bg-amber-500/10 text-amber-500 font-bold px-1.5 py-0.2 rounded-full border border-amber-500/20">
+                  Ecosistema
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Cadernos oficiais, podcasts de áudio e sintetizador de fontes do Google.
+              </p>
+            </div>
+          </div>
           <button
             onClick={handleOpenNotebookLM}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 text-xs font-bold rounded-xl transition-all shadow-2xs cursor-pointer"
+            className="w-full text-xs font-bold bg-amber-50 hover:bg-amber-100 text-amber-800 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
-            <span>Abrir Caderno</span>
-            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            <span>Acessar Caderno de Áudio</span>
+            <ExternalLink className="w-3.5 h-3.5 text-amber-500" />
           </button>
         </div>
       </div>

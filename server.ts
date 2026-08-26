@@ -1,7 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, GenerateVideosOperation } from '@google/genai';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -10,8 +10,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
   // Initialize Gemini AI client server-side
   let ai: GoogleGenAI | null = null;
@@ -39,8 +39,8 @@ async function startServer() {
       contents: any;
       config?: any;
     }
-  ): Promise<{ text: string }> {
-    const modelName = params.model || 'gemini-2.5-flash';
+  ): Promise<{ text: string; rawResponse?: any; groundingMetadata?: any }> {
+    const modelName = params.model || 'gemini-3.5-flash';
     let attempts = 0;
     const maxAttempts = 2; // 1 initial + 1 retry for transient network errors (never retry on 429)
 
@@ -52,7 +52,13 @@ async function startServer() {
           contents: params.contents,
           config: params.config,
         });
-        return { text: response.text || '' };
+
+        const groundingMeta = response.candidates?.[0]?.groundingMetadata;
+        return {
+          text: response.text || '',
+          rawResponse: response,
+          groundingMetadata: groundingMeta,
+        };
       } catch (err: any) {
         const errMessage = String(err?.message || err || '');
         const status = err?.status || err?.statusCode || err?.response?.status;
@@ -97,23 +103,58 @@ async function startServer() {
     throw new Error('Serviço de IA indisponível.');
   }
 
-  // Gemini Proxy Endpoint
+  // Gemini Multi-turn & Grounding Proxy Endpoint
   app.post('/api/gemini', async (req, res) => {
     try {
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey || !ai) {
         return res.status(500).json({
+          success: false,
           erro: true,
           tipo: 'erro_config',
-          error: 'Chave GEMINI_API_KEY não configurada no servidor. Configure nos Secrets do AI Studio.',
+          error: 'Chave GEMINI_API_KEY não configurada no servidor.',
           mensagem: 'Chave GEMINI_API_KEY não configurada no servidor.',
         });
       }
 
-      const { prompt, systemInstruction, responseMimeType, responseSchema } = req.body;
+      const {
+        prompt,
+        history,
+        messages,
+        systemInstruction,
+        responseMimeType,
+        responseSchema,
+        model,
+        useSearchGrounding,
+        useMapsGrounding,
+      } = req.body || {};
 
-      if (!prompt) {
-        return res.status(400).json({ erro: true, error: 'Prompt é obrigatório.' });
+      let contentsPayload: any;
+
+      if (Array.isArray(history) && history.length > 0) {
+        contentsPayload = history.map((msg: any) => ({
+          role: msg.role === 'ai' || msg.role === 'model' ? 'model' : 'user',
+          parts: [{ text: String(msg.text || msg.content || '') }],
+        }));
+
+        if (prompt && typeof prompt === 'string' && prompt.trim()) {
+          const lastMsg = history[history.length - 1];
+          if (!lastMsg || lastMsg.text !== prompt) {
+            contentsPayload.push({
+              role: 'user',
+              parts: [{ text: prompt.trim() }],
+            });
+          }
+        }
+      } else if (Array.isArray(messages) && messages.length > 0) {
+        contentsPayload = messages.map((msg: any) => ({
+          role: msg.role === 'ai' || msg.role === 'model' || msg.sender === 'ai' ? 'model' : 'user',
+          parts: [{ text: String(msg.text || msg.content || '') }],
+        }));
+      } else if (prompt && typeof prompt === 'string' && prompt.trim()) {
+        contentsPayload = prompt.trim();
+      } else {
+        return res.status(400).json({ success: false, erro: true, error: 'Prompt ou histórico de mensagens é obrigatório.' });
       }
 
       const config: Record<string, any> = {};
@@ -127,21 +168,211 @@ async function startServer() {
         config.responseSchema = responseSchema;
       }
 
+      // Add Search Grounding or Maps Grounding if requested
+      if (useSearchGrounding) {
+        config.tools = [{ googleSearch: {} }];
+      } else if (useMapsGrounding) {
+        config.tools = [{ googleMaps: {} }];
+      }
+
+      // Selected model mapping (default gemini-3.5-flash)
+      let selectedModel = 'gemini-3.5-flash';
+      if (model === 'gemini-3.1-pro-preview' || model === 'pro') {
+        selectedModel = 'gemini-3.1-pro-preview';
+      } else if (model === 'gemini-3.1-flash-lite' || model === 'lite') {
+        selectedModel = 'gemini-3.1-flash-lite';
+      } else if (model === 'gemini-3.7-flash') {
+        selectedModel = 'gemini-3.7-flash';
+      } else if (model) {
+        selectedModel = model;
+      }
+
       const response = await callGeminiWithResilience(ai, {
-        model: 'gemini-2.5-flash',
-        contents: prompt,
+        model: selectedModel,
+        contents: contentsPayload,
         config: Object.keys(config).length > 0 ? config : undefined,
       });
 
-      return res.json({ success: true, text: response.text, data: { text: response.text } });
+      return res.json({
+        success: true,
+        text: response.text,
+        message: response.text,
+        groundingMetadata: response.groundingMetadata,
+        data: { text: response.text, groundingMetadata: response.groundingMetadata },
+      });
     } catch (err: any) {
       console.error('Erro na API Gemini:', err);
       const isQuota = err.tipo === 'quota_excedida' || err.isQuota;
       return res.status(isQuota ? 429 : 500).json({
+        success: false,
         erro: true,
         tipo: isQuota ? 'quota_excedida' : 'erro_temporario',
         error: err.message || 'Erro ao processar requisição com IA Gemini.',
         mensagem: err.message || 'Erro ao processar requisição com IA Gemini.',
+      });
+    }
+  });
+
+  // Audio Transcription Endpoint using gemini-3.5-flash
+  app.post('/api/gemini/transcribe-audio', async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || !ai) {
+        return res.status(500).json({
+          success: false,
+          error: 'Chave GEMINI_API_KEY não configurada no servidor.',
+        });
+      }
+
+      const { audioBase64, mimeType = 'audio/webm', prompt } = req.body || {};
+      if (!audioBase64) {
+        return res.status(400).json({ success: false, error: 'audioBase64 é obrigatório.' });
+      }
+
+      const cleanBase64 = audioBase64.replace(/^data:[^;]+;base64,/, '');
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: [
+          {
+            inlineData: {
+              mimeType: mimeType.split(';')[0] || 'audio/webm',
+              data: cleanBase64,
+            },
+          },
+          {
+            text: prompt || 'Transcreva com fidelidade o áudio em português, organizando pontuação, parágrafos e destacando termos jurídicos e de concurso se houver.',
+          },
+        ],
+      });
+
+      return res.json({
+        success: true,
+        text: response.text || '',
+        transcription: response.text || '',
+      });
+    } catch (err: any) {
+      console.error('Erro na transcrição de áudio Gemini:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Erro ao transcrever áudio com Gemini.',
+      });
+    }
+  });
+
+  // Veo Video Generation: Step 1 - Start
+  app.post('/api/generate-video', async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || !ai) {
+        return res.status(500).json({
+          success: false,
+          error: 'Chave GEMINI_API_KEY não configurada no servidor.',
+        });
+      }
+
+      const { prompt, aspectRatio = '16:9', resolution = '720p' } = req.body || {};
+      if (!prompt) {
+        return res.status(400).json({ success: false, error: 'Prompt é obrigatório para gerar vídeo.' });
+      }
+
+      const validAspect = aspectRatio === '9:16' ? '9:16' : '16:9';
+      const validRes = resolution === '1080p' ? '1080p' : '720p';
+
+      const operation = await ai.models.generateVideos({
+        model: 'veo-3.1-fast-generate-preview',
+        prompt: prompt.trim(),
+        config: {
+          numberOfVideos: 1,
+          aspectRatio: validAspect,
+          resolution: validRes,
+        },
+      });
+
+      return res.json({
+        success: true,
+        operationName: operation.name,
+      });
+    } catch (err: any) {
+      console.error('Erro ao iniciar geração de vídeo Veo:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Erro ao iniciar geração de vídeo com Veo 3.',
+      });
+    }
+  });
+
+  // Veo Video Generation: Step 2 - Poll Status
+  app.post('/api/video-status', async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || !ai) {
+        return res.status(500).json({ success: false, error: 'Chave GEMINI_API_KEY não configurada.' });
+      }
+
+      const { operationName } = req.body || {};
+      if (!operationName) {
+        return res.status(400).json({ success: false, error: 'operationName é obrigatório.' });
+      }
+
+      const op = new GenerateVideosOperation();
+      op.name = operationName;
+      const updated = await ai.operations.getVideosOperation({ operation: op });
+
+      return res.json({
+        success: true,
+        done: !!updated.done,
+        error: updated.error || null,
+      });
+    } catch (err: any) {
+      console.error('Erro ao verificar status do vídeo Veo:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Erro ao checar status do vídeo.',
+      });
+    }
+  });
+
+  // Veo Video Generation: Step 3 - Download Video Stream
+  app.post('/api/video-download', async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || !ai) {
+        return res.status(500).json({ success: false, error: 'Chave GEMINI_API_KEY não configurada.' });
+      }
+
+      const { operationName } = req.body || {};
+      if (!operationName) {
+        return res.status(400).json({ success: false, error: 'operationName é obrigatório.' });
+      }
+
+      const op = new GenerateVideosOperation();
+      op.name = operationName;
+      const updated = await ai.operations.getVideosOperation({ operation: op });
+
+      const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
+      if (!uri) {
+        return res.status(404).json({ success: false, error: 'URI do vídeo gerado não encontrada.' });
+      }
+
+      const videoRes = await fetch(uri, {
+        headers: { 'x-goog-api-key': apiKey },
+      });
+
+      if (!videoRes.ok) {
+        return res.status(videoRes.status).json({ success: false, error: 'Falha ao baixar vídeo dos servidores do Google.' });
+      }
+
+      res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', 'inline; filename="synapse_video.mp4"');
+
+      const arrayBuffer = await videoRes.arrayBuffer();
+      res.send(Buffer.from(arrayBuffer));
+    } catch (err: any) {
+      console.error('Erro no download do vídeo Veo:', err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || 'Erro ao obter vídeo gerado.',
       });
     }
   });
@@ -1604,7 +1835,7 @@ Seja direto, claro e encorajador.`;
         });
       }
 
-      const ytKey = "AIzaSyCSEReZYr4UPR9-b4xpzBgz3uij4eSNI74";
+      const ytKey = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
       let results: Array<{ videoId: string; titulo: string; canal: string; thumbnail: string }> = [];
 
       if (ytKey) {
@@ -1630,9 +1861,6 @@ Seja direto, claro e encorajador.`;
               .filter((x: any) => Boolean(x.videoId));
           } else if (ytData.error) {
             console.warn('[YouTube API v3 Error]:', ytData.error?.message || ytData.error);
-            if (ytData.error?.code === 403) {
-              console.warn('[YouTube API v3] Quota exceeded or API disabled. Falling back to curated embeddable stream collection.');
-            }
           }
         } catch (apiErr) {
           console.error('[YouTube API v3 Fetch Error]:', apiErr);
@@ -1641,19 +1869,17 @@ Seja direto, claro e encorajador.`;
 
       // Fallback curated list if YouTube Data API key is missing or quota/error occurred
       if (!results || results.length === 0) {
-        console.log('[Music Search] Generating fallback embeddable list for theme:', theme);
         const fallbackCatalog = [
-          { videoId: 'jfKfPfyJRdk', titulo: 'Lofi Girl - lofi hip hop radio - beats to relax/study to', canal: 'Lofi Girl', thumbnail: 'https://i.ytimg.com/vi/jfKfPfyJRdk/hqdefault.jpg' },
-          { videoId: '5qap5aO4i9A', titulo: 'Classical Music for Studying & Brain Power', canal: 'HALIDONMUSIC', thumbnail: 'https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg' },
-          { videoId: 'eKFTSSKCzWA', titulo: 'Relaxing Rain & Thunder Sounds for Sleep or Study', canal: 'Calm Sounds', thumbnail: 'https://i.ytimg.com/vi/eKFTSSKCzWA/hqdefault.jpg' },
-          { videoId: 'DWcjZAZBaT0', titulo: 'Synthwave Radio - chill synth / retro beats', canal: 'Lofi Girl', thumbnail: 'https://i.ytimg.com/vi/DWcjZAZBaT0/hqdefault.jpg' },
+          { videoId: 'WPni755-Krg', titulo: 'Lofi Study Beats & Chill (Continuous Stream)', canal: 'Synapse Study Focus', thumbnail: 'https://i.ytimg.com/vi/WPni755-Krg/hqdefault.jpg' },
+          { videoId: '5qap5aO4i9A', titulo: 'Música Clássica para Estudo & Concentração', canal: 'HALIDONMUSIC', thumbnail: 'https://i.ytimg.com/vi/5qap5aO4i9A/hqdefault.jpg' },
+          { videoId: 'eKFTSSKCzWA', titulo: 'Sons da Chuva & Tempestade Suave para Foco', canal: 'Calm Sounds', thumbnail: 'https://i.ytimg.com/vi/eKFTSSKCzWA/hqdefault.jpg' },
+          { videoId: '4xDzrJKXOOY', titulo: 'Synthwave / Retrô Beats para Foco e Produtividade', canal: 'Lofi Girl', thumbnail: 'https://i.ytimg.com/vi/4xDzrJKXOOY/hqdefault.jpg' },
           { videoId: 'f02gHuu5K2I', titulo: 'Coffee Shop BGM - Relaxing Jazz Music', canal: 'Cafe Music BGM', thumbnail: 'https://i.ytimg.com/vi/f02gHuu5K2I/hqdefault.jpg' },
-          { videoId: 'TURbeWK2wwg', titulo: 'Bossa Nova Guitar Instrumental for Focus', canal: 'Relaxing Bossa', thumbnail: 'https://i.ytimg.com/vi/TURbeWK2wwg/hqdefault.jpg' },
+          { videoId: 'TURbeWK2wwg', titulo: 'Bossa Nova Guitar Instrumental para Estudos', canal: 'Relaxing Bossa', thumbnail: 'https://i.ytimg.com/vi/TURbeWK2wwg/hqdefault.jpg' },
           { videoId: 'kgx4WGK0oNU', titulo: 'Jazz Hop & Lofi Beats Collection', canal: 'ChilledCow', thumbnail: 'https://i.ytimg.com/vi/kgx4WGK0oNU/hqdefault.jpg' },
           { videoId: 'lP26UCnoHso', titulo: 'Deep Focus Ambient Music for Work & Coding', canal: 'Music for Body and Spirit', thumbnail: 'https://i.ytimg.com/vi/lP26UCnoHso/hqdefault.jpg' },
         ];
 
-        // Shuffle / filter based on keyword
         results = fallbackCatalog;
       }
 
@@ -1661,6 +1887,7 @@ Seja direto, claro e encorajador.`;
       musicSearchCache.set(cacheKey, { timestamp: Date.now(), results });
 
       return res.json({
+        success: true,
         erro: false,
         results,
         title: results[0]?.titulo,
@@ -1669,6 +1896,7 @@ Seja direto, claro e encorajador.`;
     } catch (err: any) {
       console.error('Erro na rota /api/music-search:', err);
       return res.status(500).json({
+        success: false,
         erro: true,
         tipo: 'erro_temporario',
         error: err.message || 'Falha ao buscar playlist de música.',
@@ -1698,7 +1926,7 @@ Seja direto, claro e encorajador.`;
       let videoTitle = '';
 
       // Method 1: YouTube Data API v3 if key available
-      const ytKey = "AIzaSyCSEReZYr4UPR9-b4xpzBgz3uij4eSNI74";
+      const ytKey = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
       if (ytKey) {
         try {
           const apiRes = await fetch(
@@ -1752,6 +1980,151 @@ Seja direto, claro e encorajador.`;
     } catch (err: any) {
       console.error('Erro na rota /api/music-validate:', err);
       return res.status(500).json({ erro: true, mensagem: 'Falha ao validar link do vídeo.' });
+    }
+  });
+
+  // YouTube Playlists Endpoint (OAuth Protected)
+  app.get('/api/youtube-playlists', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
+          success: false,
+          error: {
+            code: 'UNAUTHORIZED',
+            message: 'Token de autorização do Google/YouTube ausente. Conecte sua conta do YouTube.',
+          },
+        });
+      }
+
+      const token = authHeader.replace('Bearer ', '').trim();
+      const ytUrl = 'https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=25';
+
+      const ytRes = await fetch(ytUrl, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/json',
+        },
+      });
+
+      const data = await ytRes.json();
+
+      if (!ytRes.ok) {
+        const isExpired = ytRes.status === 401 || data?.error?.code === 401;
+        const isForbidden = ytRes.status === 403 || data?.error?.code === 403;
+        return res.status(ytRes.status).json({
+          success: false,
+          error: {
+            code: isExpired ? 'AUTH_EXPIRED' : isForbidden ? 'FORBIDDEN_SCOPE' : 'YOUTUBE_API_ERROR',
+            message: isExpired
+              ? 'Sua sessão do YouTube expirou. Por favor, autorize novamente.'
+              : isForbidden
+              ? 'Acesso não autorizado para ler playlists. Conceda a permissão ao conectar.'
+              : (data?.error?.message || 'Erro ao consultar playlists no YouTube.'),
+          },
+        });
+      }
+
+      const playlists = (data.items || []).map((item: any) => ({
+        id: item.id,
+        title: item.snippet?.title || 'Playlist sem título',
+        description: item.snippet?.description || '',
+        thumbnail:
+          item.snippet?.thumbnails?.medium?.url ||
+          item.snippet?.thumbnails?.default?.url ||
+          `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+        itemCount: item.contentDetails?.itemCount || 0,
+      }));
+
+      return res.status(200).json({
+        success: true,
+        playlists,
+      });
+    } catch (err: any) {
+      console.error('Erro na API de playlists do YouTube:', err);
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Falha interna ao buscar playlists.',
+        },
+      });
+    }
+  });
+
+  // YouTube Playlist Items Endpoint
+  app.get('/api/youtube-playlist-items', async (req, res) => {
+    try {
+      const playlistId = req.query?.playlistId;
+      if (!playlistId || typeof playlistId !== 'string') {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_PARAM',
+            message: 'Parâmetro playlistId é obrigatório.',
+          },
+        });
+      }
+
+      const authHeader = req.headers.authorization;
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      let url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=${encodeURIComponent(
+        playlistId
+      )}`;
+
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        headers.Authorization = authHeader;
+      } else {
+        const apiKey = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
+        if (apiKey) {
+          url += `&key=${apiKey}`;
+        }
+      }
+
+      const ytRes = await fetch(url, { headers });
+      const data = await ytRes.json();
+
+      if (!ytRes.ok) {
+        return res.status(ytRes.status).json({
+          success: false,
+          error: {
+            code: ytRes.status === 401 ? 'AUTH_EXPIRED' : 'YOUTUBE_API_ERROR',
+            message: data?.error?.message || 'Erro ao carregar faixas da playlist.',
+          },
+        });
+      }
+
+      const tracks = (data.items || [])
+        .map((item: any) => ({
+          id: item.id,
+          videoId: item.snippet?.resourceId?.videoId || item.contentDetails?.videoId,
+          title: item.snippet?.title || 'Faixa de Música',
+          channel: item.snippet?.channelTitle || 'YouTube',
+          thumbnail:
+            item.snippet?.thumbnails?.medium?.url ||
+            item.snippet?.thumbnails?.default?.url ||
+            `https://i.ytimg.com/vi/${item.snippet?.resourceId?.videoId}/hqdefault.jpg`,
+        }))
+        .filter(
+          (t: any) =>
+            Boolean(t.videoId) &&
+            t.title !== 'Private video' &&
+            t.title !== 'Deleted video'
+        );
+
+      return res.status(200).json({
+        success: true,
+        tracks,
+      });
+    } catch (err: any) {
+      console.error('Erro na API de faixas da playlist do YouTube:', err);
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Falha interna ao obter faixas da playlist.',
+        },
+      });
     }
   });
 

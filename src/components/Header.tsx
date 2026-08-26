@@ -32,6 +32,7 @@ interface HeaderProps {
   onOpenPomodoro: () => void;
   onOpenWorkspaceModal?: () => void;
   onOpenUserManagement?: () => void;
+  onOpenConnectionsModal?: () => void;
   dailySeconds: number;
   dailyTargetSeconds: number;
   pomodoroState?: {
@@ -50,6 +51,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenPomodoro,
   onOpenWorkspaceModal,
   onOpenUserManagement,
+  onOpenConnectionsModal,
   dailySeconds,
   dailyTargetSeconds,
   pomodoroState,
@@ -293,6 +295,40 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
+                {/* Estúdio de Vídeo Mnemônico Veo 3 */}
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('open-veo-studio'));
+                    setShowToolsMenu(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 rounded-xl transition-colors text-left cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-pink-500" />
+                    <span>Estúdio de Vídeo Veo 3</span>
+                  </div>
+                  <span className="text-[9px] bg-pink-500/10 text-pink-500 font-bold px-1.5 py-0.5 rounded-full border border-pink-500/20">
+                    Veo 3.1
+                  </span>
+                </button>
+
+                {/* Gravador & Transcritor de Voz IA */}
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('open-audio-transcriber'));
+                    setShowToolsMenu(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 rounded-xl transition-colors text-left cursor-pointer group"
+                >
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-teal-500" />
+                    <span>Gravador & Transcritor de Voz</span>
+                  </div>
+                  <span className="text-[9px] bg-teal-500/10 text-teal-500 font-bold px-1.5 py-0.5 rounded-full border border-teal-500/20">
+                    Flash 3.5
+                  </span>
+                </button>
+
                 {/* Gestão de Usuários & Whitelist (Admin/SuperAdmin) */}
                 {(isSuperAdmin || role === 'admin') && onOpenUserManagement && (
                   <button
@@ -306,6 +342,29 @@ export const Header: React.FC<HeaderProps> = ({
                     <span>Gestão de Acesso (Whitelist)</span>
                   </button>
                 )}
+
+                <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
+
+                {/* Conexões e Autorizações Modal Trigger */}
+                <button
+                  onClick={() => {
+                    if (onOpenConnectionsModal) {
+                      onOpenConnectionsModal();
+                    } else {
+                      window.dispatchEvent(new CustomEvent('open-connections-modal'));
+                    }
+                    setShowToolsMenu(false);
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 rounded-xl transition-colors text-left cursor-pointer"
+                >
+                  <div className="flex items-center gap-2">
+                    <SlidersHorizontal className="w-4 h-4 text-indigo-500" />
+                    <span>Conexões & Autorizações</span>
+                  </div>
+                  <span className="text-[9px] bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold px-1.5 py-0.5 rounded-full border border-indigo-500/20">
+                    Central
+                  </span>
+                </button>
 
                 <div className="border-t border-slate-100 dark:border-slate-800 my-1" />
 
@@ -383,7 +442,17 @@ export const Header: React.FC<HeaderProps> = ({
           
           {/* User Profile Info */}
           {user && (
-            <div className="flex items-center gap-2 pl-1 pr-2.5 py-1 bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-xl max-w-[160px] truncate" title={user.email || user.displayName || 'Usuário conectado'}>
+            <div 
+              onClick={() => {
+                if (onOpenConnectionsModal) {
+                  onOpenConnectionsModal();
+                } else {
+                  window.dispatchEvent(new CustomEvent('open-connections-modal'));
+                }
+              }}
+              className="flex items-center gap-2 pl-1 pr-2.5 py-1 bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800 dark:hover:bg-slate-700/80 border border-slate-200 dark:border-slate-700/80 rounded-xl max-w-[160px] truncate cursor-pointer transition-colors" 
+              title="Gerenciar Conexões & Autorizações"
+            >
               {user.photoURL ? (
                 <img 
                   src={user.photoURL} 

@@ -1,7 +1,7 @@
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -49,7 +49,7 @@ export default async function handler(req: any, res: any) {
           }
         }
       } catch (err) {
-        console.warn('Busca direta no YouTube Data API indisponível, usando catálogo curado.');
+        console.warn('[Music Search] Busca no YouTube API indisponível, usando catálogo curado.');
       }
     }
 
@@ -64,6 +64,7 @@ export default async function handler(req: any, res: any) {
     }
 
     return res.status(200).json({
+      success: true,
       erro: false,
       results,
       title: results[0]?.titulo,
@@ -71,8 +72,12 @@ export default async function handler(req: any, res: any) {
     });
   } catch (err: any) {
     return res.status(500).json({
+      success: false,
       erro: true,
-      error: err.message || 'Falha ao buscar músicas.',
+      error: {
+        code: 'SEARCH_ERROR',
+        message: err.message || 'Falha ao buscar músicas.',
+      },
     });
   }
 }

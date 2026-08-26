@@ -32,6 +32,9 @@ import { MusicWidget } from './components/MusicWidget';
 import { InAppWebViewerModal } from './components/InAppWebViewerModal';
 import { FloatingStudyCalendar } from './components/FloatingStudyCalendar';
 import { NotebookLMSynapseBridge } from './components/NotebookLMSynapseBridge';
+import { VeoVideoStudioModal } from './components/VeoVideoStudioModal';
+import { AudioStudyTranscriberModal } from './components/AudioStudyTranscriberModal';
+import { ConnectionsModal } from './components/ConnectionsModal';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 
 export function fileToBase64(file: File): Promise<string> {
@@ -72,6 +75,9 @@ export default function App() {
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showUserManagementModal, setShowUserManagementModal] = useState(false);
+  const [showVeoModal, setShowVeoModal] = useState(false);
+  const [showAudioTranscriberModal, setShowAudioTranscriberModal] = useState(false);
+  const [showConnectionsModal, setShowConnectionsModal] = useState(false);
   const [geminiInitialMessage, setGeminiInitialMessage] = useState('');
   const [showPomodoroModal, setShowPomodoroModal] = useState(false);
   const [isPomodoroMinimized, setIsPomodoroMinimized] = useState(false);
@@ -101,13 +107,26 @@ export default function App() {
       setShowGeminiModal(true);
     };
 
+    const handleOpenVeo = () => setShowVeoModal(true);
+    const handleOpenAudio = () => setShowAudioTranscriberModal(true);
+    const handleOpenConnections = () => setShowConnectionsModal(true);
+
     // Trigger initial background sync for MG and Federal contests
     fetch('/api/concursos/auto-sync-mg-federal')
       .then((r) => r.json())
       .catch(() => {});
 
     window.addEventListener('open-gemini-chat', handleOpenGemini);
-    return () => window.removeEventListener('open-gemini-chat', handleOpenGemini);
+    window.addEventListener('open-veo-studio', handleOpenVeo);
+    window.addEventListener('open-audio-transcriber', handleOpenAudio);
+    window.addEventListener('open-connections-modal', handleOpenConnections);
+
+    return () => {
+      window.removeEventListener('open-gemini-chat', handleOpenGemini);
+      window.removeEventListener('open-veo-studio', handleOpenVeo);
+      window.removeEventListener('open-audio-transcriber', handleOpenAudio);
+      window.removeEventListener('open-connections-modal', handleOpenConnections);
+    };
   }, []);
 
   const handleDailyTimeUpdated = useCallback(() => {
@@ -367,6 +386,7 @@ export default function App() {
         onOpenGeminiModal={() => setShowGeminiModal(true)}
         onOpenWorkspaceModal={() => setShowWorkspaceModal(true)}
         onOpenUserManagement={() => setShowUserManagementModal(true)}
+        onOpenConnectionsModal={() => setShowConnectionsModal(true)}
         onOpenPomodoro={() => {
           setShowPomodoroModal(true);
           setIsPomodoroMinimized(false);
@@ -511,6 +531,33 @@ export default function App() {
       {/* User Management & Whitelist Modal (Admin Only) */}
       {showUserManagementModal && (
         <UserManagementModal onClose={() => setShowUserManagementModal(false)} />
+      )}
+
+      {/* Veo 3 Video Studio Modal */}
+      {showVeoModal && (
+        <VeoVideoStudioModal onClose={() => setShowVeoModal(false)} />
+      )}
+
+      {/* Audio Study Transcriber & Voice Recorder Modal */}
+      {showAudioTranscriberModal && (
+        <AudioStudyTranscriberModal
+          onClose={() => setShowAudioTranscriberModal(false)}
+          onInsertToNotes={(transcription) => {
+            if (activeCourseId) {
+              const updatedNotes = notesText ? `${notesText}\n\n🎙️ [Transcrição de Voz]:\n${transcription}` : `🎙️ [Transcrição de Voz]:\n${transcription}`;
+              saveMeta(activeCourseId, 'notes', { text: updatedNotes, updatedAt: Date.now() });
+              setNotesText(updatedNotes);
+              showToast('Transcrição de voz inserida com sucesso no caderno de anotações!', 'success');
+            } else {
+              showToast('Transcrição copiada com sucesso!', 'info');
+            }
+          }}
+        />
+      )}
+
+      {/* Central de Conexões e Autorizações Modal */}
+      {showConnectionsModal && (
+        <ConnectionsModal onClose={() => setShowConnectionsModal(false)} />
       )}
     </div>
   );

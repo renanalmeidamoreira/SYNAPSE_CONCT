@@ -1,4 +1,3 @@
-import type { IncomingMessage, ServerResponse } from 'http';
 import { GoogleGenAI } from '@google/genai';
 
 let ai: GoogleGenAI | null = null;
@@ -51,14 +50,39 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    const { prompt, systemInstruction, responseMimeType, responseSchema } = req.body || {};
+    const { prompt, history, messages, systemInstruction, responseMimeType, responseSchema } = req.body || {};
 
-    if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
+    let contentsPayload: any;
+
+    if (Array.isArray(history) && history.length > 0) {
+      contentsPayload = history.map((msg: any) => ({
+        role: msg.role === 'ai' || msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: String(msg.text || msg.content || '') }],
+      }));
+
+      // If there is an active new prompt at the end that isn't in history
+      if (prompt && typeof prompt === 'string' && prompt.trim()) {
+        const lastMsg = history[history.length - 1];
+        if (!lastMsg || lastMsg.text !== prompt) {
+          contentsPayload.push({
+            role: 'user',
+            parts: [{ text: prompt.trim() }],
+          });
+        }
+      }
+    } else if (Array.isArray(messages) && messages.length > 0) {
+      contentsPayload = messages.map((msg: any) => ({
+        role: msg.role === 'ai' || msg.role === 'model' || msg.sender === 'ai' ? 'model' : 'user',
+        parts: [{ text: String(msg.text || msg.content || '') }],
+      }));
+    } else if (prompt && typeof prompt === 'string' && prompt.trim()) {
+      contentsPayload = prompt.trim();
+    } else {
       return res.status(400).json({
         success: false,
         error: {
           code: 'INVALID_PROMPT',
-          message: 'O campo prompt é obrigatório.',
+          message: 'O campo prompt ou histórico de mensagens é obrigatório.',
           retryable: false,
         },
       });
@@ -79,7 +103,7 @@ export default async function handler(req: any, res: any) {
 
     const response = await aiClient.models.generateContent({
       model: modelName,
-      contents: prompt,
+      contents: contentsPayload,
       config: Object.keys(config).length > 0 ? config : undefined,
     });
 
@@ -88,6 +112,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       success: true,
       text: outputText,
+      message: outputText,
       data: {
         text: outputText,
       },
@@ -113,4 +138,3 @@ export default async function handler(req: any, res: any) {
     });
   }
 }
-

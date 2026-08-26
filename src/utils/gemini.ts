@@ -1,5 +1,5 @@
 /**
- * Resilient Gemini Client with Safe HTTP Communication & Pedagogical Fallback Engine
+ * Resilient Gemini Client with Multi-turn, Grounding (Search/Maps), Audio Transcription & Veo Video Generation
  * Security: Strictly server-side authentication (No client-side API keys exposed)
  */
 
@@ -7,6 +7,25 @@ export interface GeminiRetryOptions {
   maxRetries?: number;
   initialDelayMs?: number;
   backoffFactor?: number;
+  model?: 'gemini-3.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite' | 'gemini-3.7-flash' | string;
+  useSearchGrounding?: boolean;
+  useMapsGrounding?: boolean;
+}
+
+export interface ChatMessageItem {
+  id?: string;
+  sender: 'user' | 'ai';
+  text: string;
+  timestamp?: number;
+  groundingMetadata?: {
+    webSearchQueries?: string[];
+    searchEntryPoint?: { renderedContent?: string };
+    groundingChunks?: Array<{
+      web?: { uri: string; title: string };
+      maps?: { uri: string; title: string; placeId?: string };
+    }>;
+  };
+  modelUsed?: string;
 }
 
 /**
@@ -102,7 +121,7 @@ export async function callGeminiAPI(
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
 
       const res = await fetch('/api/gemini', {
         method: 'POST',
@@ -114,6 +133,9 @@ export async function callGeminiAPI(
           systemInstruction,
           responseMimeType,
           responseSchema,
+          model: options.model || 'gemini-3.5-flash',
+          useSearchGrounding: options.useSearchGrounding,
+          useMapsGrounding: options.useMapsGrounding,
         }),
         signal: controller.signal,
       }).catch((fetchErr) => {
@@ -136,7 +158,7 @@ export async function callGeminiAPI(
         }
 
         if (res.ok && data) {
-          const generatedText = data?.data?.text || data?.text;
+          const generatedText = data?.data?.text || data?.text || data?.message;
           if (typeof generatedText === 'string' && generatedText.length > 0) {
             return generatedText;
           }
@@ -145,7 +167,6 @@ export async function callGeminiAPI(
         // Handle 429 Quota Exceeded
         if (res.status === 429 || data?.error?.code === 'QUOTA_EXCEEDED') {
           console.warn('[Gemini Client] Limite de cota atingido na API.');
-          // Do not retry 429, fall directly to pedagogical engine
           return getPedagogicalFallbackResponse(prompt, systemInstruction);
         }
 
@@ -157,7 +178,6 @@ export async function callGeminiAPI(
         }
       }
 
-      // If attempt reached maxRetries or JSON format is strictly required
       if (responseMimeType === 'application/json') {
         return '[]';
       }
@@ -176,7 +196,161 @@ export async function callGeminiAPI(
   return getPedagogicalFallbackResponse(prompt, systemInstruction);
 }
 
+/**
+ * Multi-turn chat client for interactive AI conversations with role and model selection
+ */
+export async function callGeminiChat(
+  messages: ChatMessageItem[],
+  systemInstruction?: string,
+  options: GeminiRetryOptions = {}
+): Promise<{ text: string; groundingMetadata?: any }> {
+  try {
+    const formattedHistory = messages.map((m) => ({
+      role: m.sender === 'user' ? 'user' : 'model',
+      text: m.text,
+    }));
+
+    const res = await fetch('/api/gemini', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        history: formattedHistory,
+        systemInstruction:
+          systemInstruction ||
+          'Você é o tutor especialista em concursos e vestibulares da plataforma SYNAPSE. Forneça respostas didáticas, organizadas com tópicos, referências a leis ou artigos quando cabível, e dicas práticas para fixação.',
+        model: options.model || 'gemini-3.5-flash',
+        useSearchGrounding: options.useSearchGrounding,
+        useMapsGrounding: options.useMapsGrounding,
+      }),
+    });
+
+    const data = await res.json();
+    if (res.ok && (data.text || data.data?.text)) {
+      return {
+        text: data.text || data.data?.text,
+        groundingMetadata: data.groundingMetadata || data.data?.groundingMetadata,
+      };
+    }
+
+    // If quota or error, provide pedagogical answer for the last user message
+    const lastUserMsg = [...messages].reverse().find((m) => m.sender === 'user');
+    return {
+      text: getPedagogicalFallbackResponse(lastUserMsg?.text || '', systemInstruction),
+    };
+  } catch (err) {
+    console.warn('[Gemini Chat] Erro na requisição interativa:', err);
+    const lastUserMsg = [...messages].reverse().find((m) => m.sender === 'user');
+    return {
+      text: getPedagogicalFallbackResponse(lastUserMsg?.text || '', systemInstruction),
+    };
+  }
+}
+
+/**
+ * Speech-to-text audio transcription utility using gemini-3.5-flash
+ */
+export async function transcribeAudioWithGemini(
+  audioBlob: Blob,
+  prompt?: string
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64Data = reader.result as string;
+        const res = await fetch('/api/gemini/transcribe-audio', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            audioBase64: base64Data,
+            mimeType: audioBlob.type || 'audio/webm',
+            prompt: prompt || 'Transcreva com precisão o áudio em português, pontuando e destacando conceitos-chave para estudo.',
+          }),
+        });
+
+        const data = await res.json();
+        if (res.ok && (data.text || data.transcription)) {
+          resolve(data.text || data.transcription);
+        } else {
+          reject(new Error(data.error || 'Falha ao transcrever áudio.'));
+        }
+      } catch (err) {
+        reject(err);
+      }
+    };
+    reader.onerror = () => reject(new Error('Erro ao ler blob de áudio'));
+    reader.readAsDataURL(audioBlob);
+  });
+}
+
+/**
+ * Veo 3 Video Generation: Start generation
+ */
+export async function startVeoVideoGeneration(
+  prompt: string,
+  aspectRatio: '16:9' | '9:16' = '16:9',
+  resolution: '720p' | '1080p' = '720p'
+): Promise<{ operationName: string }> {
+  const res = await fetch('/api/generate-video', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, aspectRatio, resolution }),
+  });
+
+  const data = await res.json();
+  if (!res.ok || !data.operationName) {
+    throw new Error(data.error || 'Falha ao iniciar geração de vídeo com Veo 3.');
+  }
+
+  return { operationName: data.operationName };
+}
+
+/**
+ * Veo 3 Video Generation: Poll status
+ */
+export async function pollVeoVideoStatus(
+  operationName: string
+): Promise<{ done: boolean; error?: any }> {
+  const res = await fetch('/api/video-status', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operationName }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Falha ao consultar status do vídeo.');
+  }
+
+  return { done: !!data.done, error: data.error };
+}
+
+/**
+ * Veo 3 Video Generation: Download video blob
+ */
+export async function downloadVeoVideoBlob(
+  operationName: string
+): Promise<Blob> {
+  const res = await fetch('/api/video-download', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ operationName }),
+  });
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => ({}));
+    throw new Error(errorData.error || 'Falha ao baixar vídeo gerado.');
+  }
+
+  return await res.blob();
+}
+
 // Global hook for integration
 if (typeof window !== 'undefined') {
   (window as any).callGeminiAPI = callGeminiAPI;
+  (window as any).callGeminiChat = callGeminiChat;
 }
