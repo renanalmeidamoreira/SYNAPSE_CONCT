@@ -4,6 +4,7 @@ import App from './App.tsx';
 import './index.css';
 import { AuthProvider } from './components/AuthContext';
 import { ThemeProvider } from './components/ThemeProvider';
+import { ServiceAuthProvider } from './context/ServiceAuthContext';
 
 // Silencia o aviso inofensivo de reconexão de HMR/WebSocket do Vite e Firestore offline
 window.addEventListener('unhandledrejection', (event) => {
@@ -52,7 +53,9 @@ createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <AuthProvider>
       <ThemeProvider>
-        <App />
+        <ServiceAuthProvider>
+          <App />
+        </ServiceAuthProvider>
       </ThemeProvider>
     </AuthProvider>
   </StrictMode>

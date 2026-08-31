@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { callGeminiChat, ChatMessageItem, transcribeAudioWithGemini } from '../utils/gemini';
+import { queryLlamafile } from '../utils/llamafileClient';
+import { useServiceAuthContext } from '../context/ServiceAuthContext';
 import {
   Sparkles,
   Bot,
@@ -20,6 +22,7 @@ import {
   Cpu,
   Layers,
   Zap,
+  Server,
 } from 'lucide-react';
 import { VeoVideoStudioModal } from './VeoVideoStudioModal';
 import { AudioStudyTranscriberModal } from './AudioStudyTranscriberModal';
@@ -35,7 +38,8 @@ export const GeminiAssistantModal: React.FC<GeminiAssistantModalProps> = ({
   onClose,
   initialMessage,
 }) => {
-  const [model, setModel] = useState<'gemini-3.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite'>('gemini-3.5-flash');
+  const { gemini: geminiService } = useServiceAuthContext();
+  const [model, setModel] = useState<string>(geminiService.preferredModel || 'gemini-3.5-flash');
   const [role, setRole] = useState<'geral' | 'redacao' | 'bancas' | 'oral'>('geral');
   const [useSearchGrounding, setUseSearchGrounding] = useState(false);
   const [useMapsGrounding, setUseMapsGrounding] = useState(false);
@@ -102,6 +106,32 @@ export const GeminiAssistantModal: React.FC<GeminiAssistantModalProps> = ({
     try {
       const systemInstruction = getSystemInstructionForRole(role);
 
+      if (model === 'llamafile' || geminiService.useLocalLlamafile) {
+        const llamaMessages = [
+          { role: 'system' as const, content: systemInstruction },
+          ...newMessages.map((m) => ({
+            role: m.sender === 'ai' ? ('assistant' as const) : ('user' as const),
+            content: m.text,
+          })),
+        ];
+
+        const llamaResult = await queryLlamafile(llamaMessages, {
+          endpoint: geminiService.llamafileEndpoint,
+        });
+
+        if (llamaResult.text) {
+          setMessages((prev) => [
+            ...prev,
+            {
+              sender: 'ai',
+              text: llamaResult.text,
+              modelUsed: 'Llamafile (Local)',
+            },
+          ]);
+          return;
+        }
+      }
+
       const response = await callGeminiChat(newMessages, systemInstruction, {
         model,
         useSearchGrounding,
@@ -117,13 +147,14 @@ export const GeminiAssistantModal: React.FC<GeminiAssistantModalProps> = ({
           modelUsed: model,
         },
       ]);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorObj = err as Error;
       setMessages((prev) => [
         ...prev,
         {
           sender: 'ai',
           text: `Desculpe, ocorreu uma instabilidade na consulta: ${
-            err?.message || 'Tente novamente.'
+            errorObj?.message || 'Tente novamente.'
           }`,
         },
       ]);
@@ -252,12 +283,13 @@ export const GeminiAssistantModal: React.FC<GeminiAssistantModalProps> = ({
             <Cpu className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
             <select
               value={model}
-              onChange={(e: any) => setModel(e.target.value)}
+              onChange={(e) => setModel(e.target.value)}
               className="bg-slate-900 border border-slate-700/80 rounded-xl px-2 py-1 text-slate-200 text-[11px] focus:outline-none focus:border-indigo-500 w-full"
             >
               <option value="gemini-3.5-flash">Gemini 3.5 Flash (Geral/Recomendado)</option>
               <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Raciocínio Jurídico)</option>
               <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Ultra Rápido)</option>
+              <option value="llamafile">🦙 Llamafile (IA Local Offline)</option>
             </select>
           </div>
 

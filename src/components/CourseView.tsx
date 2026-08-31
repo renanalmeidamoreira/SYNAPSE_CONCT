@@ -62,14 +62,14 @@ export const CourseView: React.FC<CourseViewProps> = ({
   const progressPercent = totalMaterials > 0 ? Math.round((completedMaterials / totalMaterials) * 100) : 0;
 
   return (
-    <div id="course-view" className="max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 py-6 space-y-6">
+    <div id="course-view" className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 space-y-6">
       {/* Top Navigation & Station Header */}
       <div className="bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-xl">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 border-b border-slate-200 dark:border-slate-800 pb-4">
           <div className="flex items-center gap-3">
             <button
               onClick={handleBack}
-              className="p-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-indigo-600 dark:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-2xl border border-slate-300 dark:border-slate-700 transition-all flex items-center gap-1.5 text-xs font-bold"
+              className="p-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-indigo-600 hover:text-white dark:hover:bg-indigo-600 text-slate-800 dark:text-slate-200 rounded-2xl border border-slate-300 dark:border-slate-700 transition-all flex items-center gap-1.5 text-xs font-bold cursor-pointer"
               title="Voltar ao Painel de Estações"
             >
               <ArrowLeft className="w-4 h-4" />

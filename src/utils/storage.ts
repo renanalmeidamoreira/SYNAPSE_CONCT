@@ -566,10 +566,10 @@ export async function loadFromFirestore(uid: string) {
     metaSnap.forEach(doc => {
       const data = doc.data();
       const courseId = doc.id;
-      if (data.simulados) saveMeta(courseId, 'simulados', JSON.parse(data.simulados));
-      if (data.flashcards) saveMeta(courseId, 'flashcards', JSON.parse(data.flashcards));
-      if (data.notes) saveMeta(courseId, 'notes', JSON.parse(data.notes));
-      if (data.checklists) saveMeta(courseId, 'checklists', JSON.parse(data.checklists));
+      if (data.simulados) localStorage.setItem(`synapse_meta_${courseId}_simulados`, data.simulados);
+      if (data.flashcards) localStorage.setItem(`synapse_meta_${courseId}_flashcards`, data.flashcards);
+      if (data.notes) localStorage.setItem(`synapse_meta_${courseId}_notes`, data.notes);
+      if (data.checklists) localStorage.setItem(`synapse_meta_${courseId}_checklists`, data.checklists);
     });
 
   } catch (error) {

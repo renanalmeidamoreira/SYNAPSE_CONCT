@@ -84,7 +84,7 @@ export const LoginScreen: React.FC = () => {
 
         <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-slate-800">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Acesso Privado & Restrito</span>
+          <span>Ambiente Seguro</span>
         </div>
       </header>
 
@@ -95,9 +95,9 @@ export const LoginScreen: React.FC = () => {
             <div className="inline-flex p-3 rounded-2xl bg-indigo-950/80 border border-indigo-800/60 text-indigo-400 mb-1">
               <Lock className="w-6 h-6" />
             </div>
-            <h1 className="text-2xl font-black text-white tracking-tight">Portal Exclusivo SYNAPSE</h1>
+            <h1 className="text-2xl font-black text-white tracking-tight">Estação de Estudos SYNAPSE</h1>
             <p className="text-xs text-slate-400 leading-relaxed max-w-sm mx-auto">
-              Estação de alta performance e inteligência para concurseiros. Acesso restrito a usuários e e-mails autorizados.
+              Plataforma de alta performance para concurseiros. Faça login para acessar suas estações, cronogramas e simulados.
             </p>
           </div>
 

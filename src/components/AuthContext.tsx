@@ -116,47 +116,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       const authResult = await checkEmailAuthorization(email);
-      if (authResult.authorized || superAdmin) {
-        setIsAuthorized(true);
-        setRole(superAdmin ? 'admin' : authResult.role);
+      const userRole = superAdmin ? 'admin' : (authResult.role || 'student');
+      
+      setIsAuthorized(true);
+      setRole(userRole);
 
-        // Salva perfil no Firestore se for a primeira vez
-        try {
-          const userRef = doc(db, 'users', currentUser.uid);
-          const snap = await getDoc(userRef);
-          if (!snap.exists()) {
-            await setDoc(userRef, {
-              uid: currentUser.uid,
-              email: currentUser.email || '',
-              displayName: currentUser.displayName || '',
-              photoURL: currentUser.photoURL || '',
-              role: superAdmin ? 'admin' : authResult.role,
-              createdAt: new Date().toISOString(),
-              lastLoginAt: new Date().toISOString(),
-            });
-          } else {
-            await setDoc(
-              userRef,
-              { lastLoginAt: new Date().toISOString() },
-              { merge: true }
-            );
-          }
-        } catch (e) {
-          console.warn('Sync do perfil no Firestore:', e);
+      // Salva perfil no Firestore se for a primeira vez
+      try {
+        const userRef = doc(db, 'users', currentUser.uid);
+        const snap = await getDoc(userRef);
+        if (!snap.exists()) {
+          await setDoc(userRef, {
+            uid: currentUser.uid,
+            email: currentUser.email || '',
+            displayName: currentUser.displayName || 'Estudante SYNAPSE',
+            photoURL: currentUser.photoURL || '',
+            role: userRole,
+            createdAt: new Date().toISOString(),
+            lastLoginAt: new Date().toISOString(),
+          });
+        } else {
+          await setDoc(
+            userRef,
+            { lastLoginAt: new Date().toISOString() },
+            { merge: true }
+          );
         }
-      } else {
-        setIsAuthorized(false);
-        setRole('guest');
+      } catch (e) {
+        console.warn('Sync do perfil no Firestore:', e);
       }
     } catch (err) {
       console.warn('Erro ao verificar lista de autorizados:', err);
-      if (superAdmin) {
-        setIsAuthorized(true);
-        setRole('admin');
-      } else {
-        setIsAuthorized(false);
-        setRole('guest');
-      }
+      setIsAuthorized(true);
+      setRole(superAdmin ? 'admin' : 'student');
     } finally {
       setLoading(false);
     }

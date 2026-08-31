@@ -294,10 +294,18 @@ export const ConcursosSearch: React.FC<ConcursosSearchProps> = ({
   };
 
   const handleOpenIntegrated = (url: string, title: string) => {
-    if ((window as any).openInAppWeb) {
+    if (typeof (window as any).openInAppWeb === 'function') {
       (window as any).openInAppWeb(url, title);
     } else {
-      window.open(url, '_blank', 'noopener,noreferrer');
+      try {
+        window.dispatchEvent(
+          new CustomEvent('open-inapp-web', {
+            detail: { url, title },
+          })
+        );
+      } catch (e) {
+        window.open(url, '_blank', 'noopener,noreferrer');
+      }
     }
   };
 

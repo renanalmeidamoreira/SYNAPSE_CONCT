@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CourseData, MaterialItem, SimuladoItem, Flashcard } from './types';
 import {
@@ -12,6 +12,7 @@ import {
   getDailyTime,
   getCourse,
   createUnifiedStation,
+  loadFromFirestore,
 } from './utils/storage';
 import { extractEmbedUrl, openCoupledWindow } from './utils/media';
 import { callGeminiAPI } from './utils/gemini';
@@ -21,7 +22,6 @@ import { LoginScreen } from './components/LoginScreen';
 import { UnauthorizedScreen } from './components/UnauthorizedScreen';
 import { UserManagementModal } from './components/UserManagementModal';
 import { FloatingAIAssistant } from './components/FloatingAIAssistant';
-import { loadFromFirestore } from './utils/storage';
 import { Dashboard } from './components/Dashboard';
 import { CourseView } from './components/CourseView';
 import { MediaPanel } from './components/MediaPanel';
@@ -32,9 +32,8 @@ import { MusicWidget } from './components/MusicWidget';
 import { InAppWebViewerModal } from './components/InAppWebViewerModal';
 import { FloatingStudyCalendar } from './components/FloatingStudyCalendar';
 import { NotebookLMSynapseBridge } from './components/NotebookLMSynapseBridge';
-import { VeoVideoStudioModal } from './components/VeoVideoStudioModal';
-import { AudioStudyTranscriberModal } from './components/AudioStudyTranscriberModal';
 import { ConnectionsModal } from './components/ConnectionsModal';
+import { ServiceLoginModal } from './components/ServiceLoginModal';
 import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 
 export function fileToBase64(file: File): Promise<string> {
@@ -54,8 +53,8 @@ interface ToastMessage {
 
 export default function App() {
   const { user, loading, isAuthorized } = useAuth();
-  const [courses, setCourses] = useState<CourseData[]>([]);
-  const [activeCourseId, setActiveCourseIdState] = useState<string | null>(null);
+  const [courses, setCourses] = useState<CourseData[]>(() => getCoursesFromStorage());
+  const [activeCourseId, setActiveCourseIdState] = useState<string | null>(() => getActiveCourseId());
 
   // Station Metadata
   const [activeCourse, setActiveCourse] = useState<CourseData | null>(null);
@@ -75,9 +74,9 @@ export default function App() {
   const [showGeminiModal, setShowGeminiModal] = useState(false);
   const [showWorkspaceModal, setShowWorkspaceModal] = useState(false);
   const [showUserManagementModal, setShowUserManagementModal] = useState(false);
-  const [showVeoModal, setShowVeoModal] = useState(false);
-  const [showAudioTranscriberModal, setShowAudioTranscriberModal] = useState(false);
   const [showConnectionsModal, setShowConnectionsModal] = useState(false);
+  const [showServiceLoginModal, setShowServiceLoginModal] = useState(false);
+  const [serviceLoginInitialTab, setServiceLoginInitialTab] = useState<'music' | 'gemini' | 'llamafile'>('music');
   const [geminiInitialMessage, setGeminiInitialMessage] = useState('');
   const [showPomodoroModal, setShowPomodoroModal] = useState(false);
   const [isPomodoroMinimized, setIsPomodoroMinimized] = useState(false);
@@ -91,14 +90,15 @@ export default function App() {
     timeLeft: 1500,
   });
 
-  // Stable Pomodoro Callbacks & Global In-App Web Viewer Binding
-  useEffect(() => {
-    (window as any).openInAppWeb = (url: string, title?: string) => {
-      const targetUrl = url || 'https://notebooklm.google.com';
-      setInAppWebItem({ url: targetUrl, title: title || 'Navegador Interno' });
-    };
+  // Keep references for stable window and event callbacks
+  const activeCourseIdRef = useRef(activeCourseId);
+  activeCourseIdRef.current = activeCourseId;
 
-    // Escuta evento do FloatingAIAssistant para abrir o Gemini
+  const notesTextRef = useRef(notesText);
+  notesTextRef.current = notesText;
+
+  // Stable Global Custom Event Listeners
+  useEffect(() => {
     const handleOpenGemini = (e: Event) => {
       const customEvent = e as CustomEvent<string>;
       if (customEvent.detail) {
@@ -107,25 +107,36 @@ export default function App() {
       setShowGeminiModal(true);
     };
 
-    const handleOpenVeo = () => setShowVeoModal(true);
-    const handleOpenAudio = () => setShowAudioTranscriberModal(true);
     const handleOpenConnections = () => setShowConnectionsModal(true);
 
-    // Trigger initial background sync for MG and Federal contests
-    fetch('/api/concursos/auto-sync-mg-federal')
-      .then((r) => r.json())
-      .catch(() => {});
+    const handleOpenServiceLogin = (e: Event) => {
+      const customEvent = e as CustomEvent<{ tab?: 'music' | 'gemini' | 'llamafile' }>;
+      if (customEvent.detail?.tab) {
+        setServiceLoginInitialTab(customEvent.detail.tab);
+      }
+      setShowServiceLoginModal(true);
+    };
+
+    const handleOpenInAppWeb = (e: Event) => {
+      const customEvent = e as CustomEvent<{ url: string; title?: string }>;
+      if (customEvent.detail && customEvent.detail.url) {
+        setInAppWebItem({
+          url: customEvent.detail.url,
+          title: customEvent.detail.title || 'Portal do Concurso',
+        });
+      }
+    };
 
     window.addEventListener('open-gemini-chat', handleOpenGemini);
-    window.addEventListener('open-veo-studio', handleOpenVeo);
-    window.addEventListener('open-audio-transcriber', handleOpenAudio);
     window.addEventListener('open-connections-modal', handleOpenConnections);
+    window.addEventListener('open-service-login', handleOpenServiceLogin);
+    window.addEventListener('open-inapp-web', handleOpenInAppWeb);
 
     return () => {
       window.removeEventListener('open-gemini-chat', handleOpenGemini);
-      window.removeEventListener('open-veo-studio', handleOpenVeo);
-      window.removeEventListener('open-audio-transcriber', handleOpenAudio);
       window.removeEventListener('open-connections-modal', handleOpenConnections);
+      window.removeEventListener('open-service-login', handleOpenServiceLogin);
+      window.removeEventListener('open-inapp-web', handleOpenInAppWeb);
     };
   }, []);
 
@@ -166,7 +177,8 @@ export default function App() {
     }, 3500);
   }, []);
 
-
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
 
   // Refresh courses from storage
   const refreshCourses = useCallback(() => {
@@ -176,12 +188,16 @@ export default function App() {
     setActiveCourseIdState(activeId);
   }, []);
 
-  // Load from Firestore on auth change
+  // Load from Firestore ONCE per user authentication session (prevents cyclic re-fetching)
+  const loadedUidRef = useRef<string | null>(null);
   useEffect(() => {
-    if (user) {
+    if (user && user.uid && loadedUidRef.current !== user.uid) {
+      loadedUidRef.current = user.uid;
       loadFromFirestore(user.uid).then(() => {
         refreshCourses();
       });
+    } else if (!user) {
+      loadedUidRef.current = null;
     }
   }, [user, refreshCourses]);
 
@@ -199,28 +215,30 @@ export default function App() {
 
       const notesMeta = getMeta<{ text: string }>(courseId, 'notes', { text: '' });
       setNotesText(notesMeta.text || '');
+    } else {
+      setSimulados([]);
+      setFlashcards([]);
+      setNotesText('');
     }
   }, []);
 
-  // Initial Load
-  useEffect(() => {
-    refreshCourses();
-  }, [refreshCourses]);
-
+  // Sync active course metadata whenever activeCourseId changes
   useEffect(() => {
     if (activeCourseId) {
       loadActiveCourseMeta(activeCourseId);
     } else {
       setActiveCourse(null);
+      setSimulados([]);
+      setFlashcards([]);
+      setNotesText('');
     }
   }, [activeCourseId, loadActiveCourseMeta]);
 
   // Handle Station Switch
-  const handleSelectCourse = (id: string) => {
+  const handleSelectCourse = useCallback((id: string) => {
     setActiveCourseId(id);
     setActiveCourseIdState(id);
-    loadActiveCourseMeta(id);
-  };
+  }, []);
 
   // Close Station handler (closeCourse)
   const handleCloseCourse = useCallback(() => {
@@ -236,30 +254,30 @@ export default function App() {
       if (ev) ev.stopPropagation();
       if (skipConfirm || window.confirm('Excluir esta estação permanentemente?')) {
         dbDeleteCourse(id);
-        if (String(activeCourseId) === String(id)) {
+        if (String(activeCourseIdRef.current) === String(id)) {
           handleCloseCourse();
         }
         refreshCourses();
-        showToast('Estação removida com sucesso.', 'info');
+        showToastRef.current('Estação removida com sucesso.', 'info');
       }
     },
-    [activeCourseId, handleCloseCourse, refreshCourses, showToast]
+    [handleCloseCourse, refreshCourses]
   );
 
   // Save Course Notes handler (saveCourseNotes)
   const handleSaveCourseNotes = useCallback(() => {
-    const currentId = activeCourseId || getActiveCourseId();
+    const currentId = activeCourseIdRef.current || getActiveCourseId();
     if (!currentId) return;
 
     const textarea = document.getElementById('cv-notes') as HTMLTextAreaElement | null;
-    const textToSave = textarea ? textarea.value : notesText;
+    const textToSave = textarea ? textarea.value : notesTextRef.current;
 
     saveMeta(currentId, 'notes', { text: textToSave, updatedAt: Date.now() });
     setNotesText(textToSave);
-    showToast('Caderno salvo!', 'success');
-  }, [activeCourseId, notesText, showToast]);
+    showToastRef.current('Caderno salvo!', 'success');
+  }, []);
 
-  // Expose MANDATORY window functions globally
+  // Expose MANDATORY window functions globally (Stable, bound once on mount)
   useEffect(() => {
     (window as any).closeCourse = handleCloseCourse;
     (window as any).deleteCourse = handleDeleteCourse;
@@ -270,15 +288,15 @@ export default function App() {
     (window as any).extractEmbedUrl = extractEmbedUrl;
     (window as any).openCoupledWindow = (url: string) => {
       const ok = openCoupledWindow(url);
-      if (!ok) showToast('Permita pop-ups para abrir em janela acoplada.', 'warning');
+      if (!ok) showToastRef.current('Permita pop-ups para abrir em janela acoplada.', 'warning');
       return ok;
     };
     (window as any).renderDashboard = refreshCourses;
-    (window as any).showToast = showToast;
+    (window as any).showToast = showToastRef.current;
     (window as any).openInAppWeb = (url: string, title?: string) => {
       setInAppWebItem({ url, title });
     };
-  }, [handleCloseCourse, handleDeleteCourse, handleSaveCourseNotes, refreshCourses, showToast]);
+  }, [handleCloseCourse, handleDeleteCourse, handleSaveCourseNotes, refreshCourses]);
 
   // Station Updates
   const handleUpdateActiveCourse = (updated: CourseData) => {
@@ -397,51 +415,53 @@ export default function App() {
       />
 
       {/* Main Body */}
-      <main className="flex-1 overflow-x-hidden">
-        <AnimatePresence mode="wait">
-          {activeCourseId && activeCourse ? (
-            <motion.div
-              key={`course-${activeCourseId}`}
-              initial={{ opacity: 0, y: 12, scale: 0.995 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -12, scale: 0.995 }}
-              transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
-            >
-              <CourseView
-                course={activeCourse}
-                simulados={simulados}
-                flashcards={flashcards}
-                notesText={notesText}
-                onUpdateCourse={handleUpdateActiveCourse}
-                onUpdateSimulados={handleUpdateSimulados}
-                onUpdateFlashcards={handleUpdateFlashcards}
-                onSaveNotes={handleSaveCourseNotes}
-                onOpenMedia={(item) => setActiveMediaItem(item)}
-                onDailyTimeUpdated={handleDailyTimeUpdated}
-              />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="dashboard"
-              initial={{ opacity: 0, y: 12, scale: 0.995 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -12, scale: 0.995 }}
-              transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
-            >
-              <Dashboard
-                courses={courses}
-                onOpenCourse={handleSelectCourse}
-                onDeleteCourse={(id) => handleDeleteCourse(id, undefined, true)}
-                onCreateCourse={handleCreateCourse}
-                onUpdateCourse={(c) => {
-                  saveCourse(c);
-                  refreshCourses();
-                }}
-                onLoadUnifiedModel={handleLoadUnifiedModel}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <main className="flex-1 overflow-x-hidden px-4 sm:px-6 lg:px-8 xl:px-10">
+        <div className="max-w-7xl mx-auto w-full">
+          <AnimatePresence mode="wait">
+            {activeCourseId && activeCourse ? (
+              <motion.div
+                key={`course-${activeCourseId}`}
+                initial={{ opacity: 0, y: 12, scale: 0.995 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -12, scale: 0.995 }}
+                transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
+              >
+                <CourseView
+                  course={activeCourse}
+                  simulados={simulados}
+                  flashcards={flashcards}
+                  notesText={notesText}
+                  onUpdateCourse={handleUpdateActiveCourse}
+                  onUpdateSimulados={handleUpdateSimulados}
+                  onUpdateFlashcards={handleUpdateFlashcards}
+                  onSaveNotes={handleSaveCourseNotes}
+                  onOpenMedia={(item) => setActiveMediaItem(item)}
+                  onDailyTimeUpdated={handleDailyTimeUpdated}
+                />
+              </motion.div>
+            ) : (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 12, scale: 0.995 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -12, scale: 0.995 }}
+                transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
+              >
+                <Dashboard
+                  courses={courses}
+                  onOpenCourse={handleSelectCourse}
+                  onDeleteCourse={(id) => handleDeleteCourse(id, undefined, true)}
+                  onCreateCourse={handleCreateCourse}
+                  onUpdateCourse={(c) => {
+                    saveCourse(c);
+                    refreshCourses();
+                  }}
+                  onLoadUnifiedModel={handleLoadUnifiedModel}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </main>
 
       {/* Split Media Panel Viewer */}
@@ -533,31 +553,17 @@ export default function App() {
         <UserManagementModal onClose={() => setShowUserManagementModal(false)} />
       )}
 
-      {/* Veo 3 Video Studio Modal */}
-      {showVeoModal && (
-        <VeoVideoStudioModal onClose={() => setShowVeoModal(false)} />
-      )}
-
-      {/* Audio Study Transcriber & Voice Recorder Modal */}
-      {showAudioTranscriberModal && (
-        <AudioStudyTranscriberModal
-          onClose={() => setShowAudioTranscriberModal(false)}
-          onInsertToNotes={(transcription) => {
-            if (activeCourseId) {
-              const updatedNotes = notesText ? `${notesText}\n\n🎙️ [Transcrição de Voz]:\n${transcription}` : `🎙️ [Transcrição de Voz]:\n${transcription}`;
-              saveMeta(activeCourseId, 'notes', { text: updatedNotes, updatedAt: Date.now() });
-              setNotesText(updatedNotes);
-              showToast('Transcrição de voz inserida com sucesso no caderno de anotações!', 'success');
-            } else {
-              showToast('Transcrição copiada com sucesso!', 'info');
-            }
-          }}
-        />
-      )}
-
       {/* Central de Conexões e Autorizações Modal */}
       {showConnectionsModal && (
         <ConnectionsModal onClose={() => setShowConnectionsModal(false)} />
+      )}
+
+      {/* Gerenciador de Serviços & Autenticações Modal */}
+      {showServiceLoginModal && (
+        <ServiceLoginModal
+          initialTab={serviceLoginInitialTab}
+          onClose={() => setShowServiceLoginModal(false)}
+        />
       )}
     </div>
   );

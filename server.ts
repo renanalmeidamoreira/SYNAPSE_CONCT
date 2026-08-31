@@ -3,6 +3,8 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, GenerateVideosOperation } from '@google/genai';
 import dotenv from 'dotenv';
+import { handleAIChat } from './api/ai/chat';
+import { handleYouTubeProxy } from './api/youtube-proxy';
 
 dotenv.config();
 
@@ -13,22 +15,31 @@ async function startServer() {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-  // Initialize Gemini AI client server-side
+  // Initialize Gemini AI client server-side with fallback support and clear diagnostics
   let ai: GoogleGenAI | null = null;
-  if (process.env.GEMINI_API_KEY) {
-    ai = new GoogleGenAI({
-      apiKey: process.env.GEMINI_API_KEY,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
+  function getGeminiClient(): GoogleGenAI | null {
+    const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+      console.error('[SYNAPSE Server] Nenhuma chave de IA encontrada. Configure GEMINI_API_KEY nas variáveis de ambiente da Vercel/Render.');
+      return null;
+    }
+    if (!ai) {
+      ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
         },
-      },
-    });
+      });
+    }
+    return ai;
   }
 
   // API Health Check
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', hasGeminiKey: !!process.env.GEMINI_API_KEY });
+    const hasKey = !!(process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY);
+    res.json({ status: 'ok', hasGeminiKey: hasKey });
   });
 
   // Centralized Gemini AI call wrapper with quota handling and resilience
@@ -106,14 +117,14 @@ async function startServer() {
   // Gemini Multi-turn & Grounding Proxy Endpoint
   app.post('/api/gemini', async (req, res) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || !ai) {
+      const aiClient = getGeminiClient();
+      if (!aiClient) {
         return res.status(500).json({
           success: false,
           erro: true,
           tipo: 'erro_config',
-          error: 'Chave GEMINI_API_KEY não configurada no servidor.',
-          mensagem: 'Chave GEMINI_API_KEY não configurada no servidor.',
+          error: 'Chave GEMINI_API_KEY não configurada no ambiente do servidor.',
+          mensagem: 'Chave GEMINI_API_KEY não configurada no ambiente do servidor.',
         });
       }
 
@@ -187,7 +198,7 @@ async function startServer() {
         selectedModel = model;
       }
 
-      const response = await callGeminiWithResilience(ai, {
+      const response = await callGeminiWithResilience(aiClient, {
         model: selectedModel,
         contents: contentsPayload,
         config: Object.keys(config).length > 0 ? config : undefined,
@@ -213,11 +224,14 @@ async function startServer() {
     }
   });
 
+  // Local AI & Llamafile proxy endpoint
+  app.post('/api/ai/chat', handleAIChat);
+
   // Audio Transcription Endpoint using gemini-3.5-flash
   app.post('/api/gemini/transcribe-audio', async (req, res) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || !ai) {
+      const aiClient = getGeminiClient();
+      if (!aiClient) {
         return res.status(500).json({
           success: false,
           error: 'Chave GEMINI_API_KEY não configurada no servidor.',
@@ -231,7 +245,7 @@ async function startServer() {
 
       const cleanBase64 = audioBase64.replace(/^data:[^;]+;base64,/, '');
 
-      const response = await ai.models.generateContent({
+      const response = await aiClient.models.generateContent({
         model: 'gemini-3.5-flash',
         contents: [
           {
@@ -263,8 +277,8 @@ async function startServer() {
   // Veo Video Generation: Step 1 - Start
   app.post('/api/generate-video', async (req, res) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || !ai) {
+      const aiClient = getGeminiClient();
+      if (!aiClient) {
         return res.status(500).json({
           success: false,
           error: 'Chave GEMINI_API_KEY não configurada no servidor.',
@@ -279,7 +293,7 @@ async function startServer() {
       const validAspect = aspectRatio === '9:16' ? '9:16' : '16:9';
       const validRes = resolution === '1080p' ? '1080p' : '720p';
 
-      const operation = await ai.models.generateVideos({
+      const operation = await aiClient.models.generateVideos({
         model: 'veo-3.1-fast-generate-preview',
         prompt: prompt.trim(),
         config: {
@@ -305,8 +319,8 @@ async function startServer() {
   // Veo Video Generation: Step 2 - Poll Status
   app.post('/api/video-status', async (req, res) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || !ai) {
+      const aiClient = getGeminiClient();
+      if (!aiClient) {
         return res.status(500).json({ success: false, error: 'Chave GEMINI_API_KEY não configurada.' });
       }
 
@@ -317,7 +331,7 @@ async function startServer() {
 
       const op = new GenerateVideosOperation();
       op.name = operationName;
-      const updated = await ai.operations.getVideosOperation({ operation: op });
+      const updated = await aiClient.operations.getVideosOperation({ operation: op });
 
       return res.json({
         success: true,
@@ -336,8 +350,8 @@ async function startServer() {
   // Veo Video Generation: Step 3 - Download Video Stream
   app.post('/api/video-download', async (req, res) => {
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey || !ai) {
+      const aiClient = getGeminiClient();
+      if (!aiClient) {
         return res.status(500).json({ success: false, error: 'Chave GEMINI_API_KEY não configurada.' });
       }
 
@@ -348,15 +362,16 @@ async function startServer() {
 
       const op = new GenerateVideosOperation();
       op.name = operationName;
-      const updated = await ai.operations.getVideosOperation({ operation: op });
+      const updated = await aiClient.operations.getVideosOperation({ operation: op });
 
       const uri = updated.response?.generatedVideos?.[0]?.video?.uri;
       if (!uri) {
         return res.status(404).json({ success: false, error: 'URI do vídeo gerado não encontrada.' });
       }
 
+      const activeApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '';
       const videoRes = await fetch(uri, {
-        headers: { 'x-goog-api-key': apiKey },
+        headers: { 'x-goog-api-key': activeApiKey },
       });
 
       if (!videoRes.ok) {
@@ -2128,6 +2143,10 @@ Seja direto, claro e encorajador.`;
     }
   });
 
+
+  // YouTube Proxy Endpoint (Secure Server-Side YouTube Data API & Fallback)
+  app.get('/api/youtube-proxy', handleYouTubeProxy);
+  app.post('/api/youtube-proxy', handleYouTubeProxy);
 
   // Vite middleware in development or static serve in production
   if (process.env.NODE_ENV !== 'production') {

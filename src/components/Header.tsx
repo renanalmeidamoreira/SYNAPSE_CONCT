@@ -19,6 +19,7 @@ import {
   Info,
   Users,
   ShieldCheck,
+  FileCode,
 } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
 import { CourseData } from '../types';
@@ -295,40 +296,6 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
                 )}
 
-                {/* Estúdio de Vídeo Mnemônico Veo 3 */}
-                <button
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent('open-veo-studio'));
-                    setShowToolsMenu(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 rounded-xl transition-colors text-left cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-pink-500" />
-                    <span>Estúdio de Vídeo Veo 3</span>
-                  </div>
-                  <span className="text-[9px] bg-pink-500/10 text-pink-500 font-bold px-1.5 py-0.5 rounded-full border border-pink-500/20">
-                    Veo 3.1
-                  </span>
-                </button>
-
-                {/* Gravador & Transcritor de Voz IA */}
-                <button
-                  onClick={() => {
-                    window.dispatchEvent(new CustomEvent('open-audio-transcriber'));
-                    setShowToolsMenu(false);
-                  }}
-                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 rounded-xl transition-colors text-left cursor-pointer group"
-                >
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-teal-500" />
-                    <span>Gravador & Transcritor de Voz</span>
-                  </div>
-                  <span className="text-[9px] bg-teal-500/10 text-teal-500 font-bold px-1.5 py-0.5 rounded-full border border-teal-500/20">
-                    Flash 3.5
-                  </span>
-                </button>
-
                 {/* Gestão de Usuários & Whitelist (Admin/SuperAdmin) */}
                 {(isSuperAdmin || role === 'admin') && onOpenUserManagement && (
                   <button
@@ -415,6 +382,23 @@ export const Header: React.FC<HeaderProps> = ({
                     }}
                   />
                 </label>
+
+                {/* Export Source Code TXT */}
+                <a
+                  href="/SYNAPSE_CODIGO_COMPLETO.txt"
+                  download="SYNAPSE_CODIGO_COMPLETO.txt"
+                  onClick={() => setShowToolsMenu(false)}
+                  className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/70 rounded-xl transition-colors text-left cursor-pointer"
+                  title="Baixar todo o código-fonte do SYNAPSE em arquivo de texto único separado por blocos comentados"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileCode className="w-4 h-4 text-indigo-500" />
+                    <span>Baixar Código Completo (.txt)</span>
+                  </div>
+                  <span className="text-[9px] bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-mono px-1.5 py-0.5 rounded-md">
+                    .TXT
+                  </span>
+                </a>
 
                 {/* Settings toggle */}
                 <button

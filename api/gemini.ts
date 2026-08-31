@@ -3,8 +3,11 @@ import { GoogleGenAI } from '@google/genai';
 let ai: GoogleGenAI | null = null;
 
 function getAiClient(): GoogleGenAI | null {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
+  if (!apiKey) {
+    console.error('[Gemini Serverless API]: Nenhuma chave configurada. Verifique GEMINI_API_KEY nas variáveis de ambiente da hospedagem (Vercel/Render).');
+    return null;
+  }
   if (!ai) {
     ai = new GoogleGenAI({
       apiKey,

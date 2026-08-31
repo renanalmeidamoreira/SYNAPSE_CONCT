@@ -640,6 +640,28 @@ export const StudyAgendaCompactWidget: React.FC<{ onOpenFullCalendar?: () => voi
     return INITIAL_EVENTS;
   });
 
+  useEffect(() => {
+    const handleSync = (e: any) => {
+      if (e?.detail?.sender === 'StudyAgendaCompactWidget') return;
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            setEvents(parsed);
+          }
+        }
+      } catch (err) {}
+    };
+
+    window.addEventListener('study-events-updated', handleSync);
+    window.addEventListener('storage', handleSync);
+    return () => {
+      window.removeEventListener('study-events-updated', handleSync);
+      window.removeEventListener('storage', handleSync);
+    };
+  }, []);
+
   const todayStr = new Date().toISOString().split('T')[0];
   const todayEvents = useMemo(() => events.filter((e) => e.date === todayStr), [events, todayStr]);
   const completedCount = useMemo(() => todayEvents.filter((e) => e.completed).length, [todayEvents]);
@@ -650,6 +672,9 @@ export const StudyAgendaCompactWidget: React.FC<{ onOpenFullCalendar?: () => voi
     setEvents(updated);
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      window.dispatchEvent(
+        new CustomEvent('study-events-updated', { detail: { sender: 'StudyAgendaCompactWidget' } })
+      );
     } catch (e) {}
   };
 

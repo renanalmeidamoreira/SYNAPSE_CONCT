@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { CourseData } from '../types';
 import { extractTextFromPDF } from '../utils/pdfParser';
-import { StudyCalendar, StudyAgendaCompactWidget } from './StudyCalendar';
-import { ExternalLink, Headphones, FileCode2, Search, X } from 'lucide-react';
-import { ConcursosSearch } from './ConcursosSearch';
-import { callGeminiAPI } from '../utils/gemini';
+import { StudyAgendaCompactWidget } from './StudyCalendar';
 import {
+  ExternalLink,
+  Headphones,
+  FileCode2,
+  Search,
+  X,
   BookOpen,
   Plus,
   Trash2,
@@ -24,6 +26,8 @@ import {
   CheckCircle2,
   Edit3,
 } from 'lucide-react';
+import { ConcursosSearch } from './ConcursosSearch';
+import { callGeminiAPI } from '../utils/gemini';
 
 interface DashboardProps {
   courses: CourseData[];
@@ -60,7 +64,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showConcursos, setShowConcursos] = useState(false);
-  const [showFullCalendarModal, setShowFullCalendarModal] = useState(false);
 
   // NotebookLM URL state
   const [notebookUrl, setNotebookUrl] = useState(() => {
@@ -199,7 +202,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
 
 
   return (
-    <div id="dashboard" className="max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 py-8 space-y-8">
+    <div id="dashboard" className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 xl:px-10 py-6 space-y-6">
       {showConcursos ? (
         <ConcursosSearch
           initialStatusFilter={searchInitialStatus}
@@ -381,59 +384,59 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
         </div>
       </div>
 
-      {/* Hub de Ferramentas com IA Generativa (Veo 3, Transcrição de Voz, NotebookLM) */}
+      {/* Hub de Ferramentas Estratégicas (Tutor IA Gemini, Radar de Editais, Google NotebookLM) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-        {/* Veo 3 Studio */}
+        {/* Tutor IA Gemini */}
         <div className="bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
           <div className="flex items-start gap-3">
-            <div className="p-2 rounded-xl bg-pink-500/10 text-pink-500 shrink-0">
+            <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-500 shrink-0">
               <Sparkles className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Estúdio Veo 3</h4>
-                <span className="text-[9px] bg-pink-500/10 text-pink-500 font-bold px-1.5 py-0.2 rounded-full border border-pink-500/20">
-                  Vídeo IA
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Tutor IA Gemini</h4>
+                <span className="text-[9px] bg-indigo-500/10 text-indigo-500 font-bold px-1.5 py-0.2 rounded-full border border-indigo-500/20">
+                  Flash 3.5
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Crie animações e resumos mnemônicos em vídeo 16:9 ou 9:16 para fixação visual.
+                Tire dúvidas doutrinárias, esquematize jurisprudências e resolva questões comentadas.
               </p>
             </div>
           </div>
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent('open-veo-studio'))}
-            className="w-full text-xs font-bold bg-pink-50 hover:bg-pink-100 text-pink-700 dark:bg-pink-950/40 dark:hover:bg-pink-900/50 dark:text-pink-300 border border-pink-200 dark:border-pink-800/60 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-gemini-chat', { detail: 'Como você pode me ajudar a montar um plano de estudos eficiente hoje?' }))}
+            className="w-full text-xs font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/50 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>Abrir Estúdio Veo 3</span>
+            <span>Consultar Tutor IA</span>
           </button>
         </div>
 
-        {/* Audio Study Transcriber */}
+        {/* Radar de Editais */}
         <div className="bg-slate-50/90 dark:bg-slate-900/60 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 flex flex-col justify-between space-y-3">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-teal-500/10 text-teal-500 shrink-0">
-              <Headphones className="w-5 h-5" />
+              <Search className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Gravador & Transcritor</h4>
+                <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Radar de Editais</h4>
                 <span className="text-[9px] bg-teal-500/10 text-teal-500 font-bold px-1.5 py-0.2 rounded-full border border-teal-500/20">
-                  Voz IA
+                  Nacional
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Grave suas revisões faladas, treine prova oral e gere anotações estruturadas.
+                Pesquise certames abertos e previstos em MG e esfera Federal com filtros por carreira.
               </p>
             </div>
           </div>
           <button
-            onClick={() => window.dispatchEvent(new CustomEvent('open-audio-transcriber'))}
+            onClick={() => setShowConcursos(true)}
             className="w-full text-xs font-bold bg-teal-500/10 hover:bg-teal-500/20 text-teal-700 dark:text-teal-300 border border-teal-300 dark:border-teal-800/60 py-2 rounded-xl transition-all flex items-center justify-center gap-1.5 cursor-pointer"
           >
-            <Headphones className="w-3.5 h-3.5" />
-            <span>Gravar Anotação por Voz</span>
+            <Search className="w-3.5 h-3.5" />
+            <span>Buscar no Radar</span>
           </button>
         </div>
 
@@ -447,7 +450,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
               <div className="flex items-center gap-2">
                 <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Google NotebookLM</h4>
                 <span className="text-[9px] bg-amber-500/10 text-amber-500 font-bold px-1.5 py-0.2 rounded-full border border-amber-500/20">
-                  Ecosistema
+                  Ecossistema
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
@@ -467,7 +470,7 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
 
       {/* Study Agenda Compact Widget */}
       <div className="mb-6">
-        <StudyAgendaCompactWidget onOpenFullCalendar={() => setShowFullCalendarModal(true)} />
+        <StudyAgendaCompactWidget onOpenFullCalendar={() => window.dispatchEvent(new CustomEvent('open-floating-calendar'))} />
       </div>
 
       {/* Courses Grid Section */}
@@ -498,20 +501,35 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
           <p className="text-sm text-slate-600 dark:text-slate-400 max-w-md mx-auto mb-6">
             Crie sua primeira estação de estudos ou inicie com um dos modelos unificados acima.
           </p>
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-3 max-w-lg mx-auto">
             <button
               onClick={() => setShowNewModal(true)}
-              className="bg-indigo-600 dark:bg-indigo-600 hover:bg-indigo-500 dark:hover:bg-indigo-500 text-white font-bold text-sm px-5 py-2.5 rounded-xl transition-all"
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm px-5 py-2.5 rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center gap-2 cursor-pointer"
             >
-              Criar Estação
+              <Plus className="w-4 h-4" /> Criar Minha Estação
             </button>
+            {onLoadUnifiedModel && (
+              <>
+                <button
+                  onClick={() => onLoadUnifiedModel('adm')}
+                  className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-amber-500" /> Modelo Administrativo
+                </button>
+                <button
+                  onClick={() => onLoadUnifiedModel('policiais')}
+                  className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4 text-cyan-500" /> Modelo Policial
+                </button>
+              </>
+            )}
             <button
               onClick={() => setShowConcursos(true)}
-              className="bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-sm px-5 py-2.5 rounded-xl transition-all flex items-center gap-2"
+              className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold text-xs sm:text-sm px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 cursor-pointer"
             >
-              <Search className="w-4 h-4" /> Buscar Concursos
+              <Search className="w-4 h-4" /> Radar de Editais
             </button>
-            
           </div>
         </div>
       ) : (
@@ -764,24 +782,6 @@ Responda ESTRITAMENTE em formato JSON com o seguinte schema:
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Full Calendar Modal */}
-      {showFullCalendarModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-800">
-              <h3 className="text-base font-bold text-white">Agenda de Estudos & Cronograma</h3>
-              <button
-                onClick={() => setShowFullCalendarModal(false)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <StudyCalendar />
           </div>
         </div>
       )}

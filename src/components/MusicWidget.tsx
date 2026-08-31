@@ -27,6 +27,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
+import { useServiceAuthContext } from '../context/ServiceAuthContext';
 
 const YTContainer = React.memo(() => <div id="yt-widget-iframe" className="w-full h-full" />, () => true);
 
@@ -150,6 +151,7 @@ declare global {
 
 export const MusicWidget: React.FC = () => {
   const { googleAccessToken, authorizeYouTube, user } = useAuth();
+  const { googleMusic } = useServiceAuthContext();
 
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
@@ -172,6 +174,8 @@ export const MusicWidget: React.FC = () => {
   const [loadingPlaylistId, setLoadingPlaylistId] = useState<string | null>(null);
   const [playlistLinkInput, setPlaylistLinkInput] = useState<string>('');
   const [isLoadingPlaylistLink, setIsLoadingPlaylistLink] = useState<boolean>(false);
+  const [directEmbedPlaylistId, setDirectEmbedPlaylistId] = useState<string | null>(null);
+  const [isDirectEmbedMode, setIsDirectEmbedMode] = useState<boolean>(false);
 
   // Queue state
   const [queue, setQueue] = useState<MusicQueueItem[]>([
@@ -414,7 +418,7 @@ export const MusicWidget: React.FC = () => {
     }
   };
 
-  const handleLoadPlaylistByLink = async (playlistIdentifier?: string) => {
+  const handleLoadPlaylistByLink = async (playlistIdentifier?: string, forceDirectEmbed: boolean = false) => {
     const raw = (playlistIdentifier || playlistLinkInput).trim();
     if (!raw) return;
 
@@ -434,20 +438,33 @@ export const MusicWidget: React.FC = () => {
         if (match) targetId = match[1];
       }
 
+      // If user requested direct embed mode or single video
+      if (forceDirectEmbed) {
+        setDirectEmbedPlaylistId(targetId);
+        setIsDirectEmbedMode(true);
+        setSuccessToast('Iniciando reprodução no Player Direto do YouTube!');
+        setPlaylistLinkInput('');
+        setActiveTab('player');
+        return;
+      }
+
+      // Call secure server proxy
       const token = googleAccessToken || localStorage.getItem('synapse_youtube_token');
-      const res = await fetch(`/api/youtube-playlist-items?playlistId=${encodeURIComponent(targetId)}`, {
+      const res = await fetch(`/api/youtube-proxy?playlistId=${encodeURIComponent(targetId)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       const data = await res.json();
 
-      if (res.ok && data.success && Array.isArray(data.tracks) && data.tracks.length > 0) {
-        const newQueue: MusicQueueItem[] = data.tracks.map((t: any) => ({
-          id: `${t.videoId}_${Math.random().toString(36).substring(2, 6)}`,
-          videoId: t.videoId,
-          title: t.title,
-          channel: t.channel,
-          thumbnail: t.thumbnail,
+      const rawItems = data.items || data.tracks || [];
+
+      if (rawItems.length > 0 && !data.fallback) {
+        const newQueue: MusicQueueItem[] = rawItems.map((t: any) => ({
+          id: `${t.snippet?.resourceId?.videoId || t.videoId || t.id}_${Math.random().toString(36).substring(2, 6)}`,
+          videoId: t.snippet?.resourceId?.videoId || t.videoId || t.id,
+          title: t.snippet?.title || t.title || 'Faixa de Estudo',
+          channel: t.snippet?.channelTitle || t.channel || 'YouTube',
+          thumbnail: t.snippet?.thumbnails?.medium?.url || t.snippet?.thumbnails?.default?.url || t.thumbnail,
         }));
 
         setQueue(newQueue);
@@ -458,38 +475,44 @@ export const MusicWidget: React.FC = () => {
           title: newQueue[0].title,
         });
 
+        setIsDirectEmbedMode(false);
+        setDirectEmbedPlaylistId(targetId);
         safeCall('loadVideoById', newQueue[0].videoId);
         setIsPlaying(true);
 
         setPlaylistLinkInput('');
-        setSuccessToast(`Playlist carregada com ${newQueue.length} faixas!`);
+        setSuccessToast(`Playlist sincronizada com ${newQueue.length} faixas!`);
         setActiveTab('player');
       } else {
-        // If single video or unlisted playlist, try playing as video
-        if (parsed?.type === 'video' && parsed.id) {
-          const newItem: MusicQueueItem = {
-            id: `${parsed.id}_custom`,
-            videoId: parsed.id,
-            title: 'Vídeo / Faixa do YouTube',
-          };
-          setQueue((prev) => [newItem, ...prev]);
-          setCurrentIndex(0);
-          setCurrentItem({
-            type: 'video',
-            id: parsed.id,
-            title: 'Vídeo / Faixa do YouTube',
-          });
-          safeCall('loadVideoById', parsed.id);
-          setIsPlaying(true);
-          setPlaylistLinkInput('');
-          setActiveTab('player');
-        } else {
-          setErrorToast(data?.error?.message || 'Nenhuma faixa encontrada nesta playlist. Verifique se ela é pública ou não-listada.');
+        // Fallback robusto: se a API não retornou faixas ou está em fallback, toca no Player Direto
+        setDirectEmbedPlaylistId(targetId);
+        setIsDirectEmbedMode(true);
+
+        if (data.defaultPlaylist && Array.isArray(data.defaultPlaylist)) {
+          const fallbackTracks: MusicQueueItem[] = data.defaultPlaylist.map((item: any) => ({
+            id: `${item.url}_fallback`,
+            videoId: item.url,
+            title: item.title,
+            channel: 'Synapse Study Focus',
+            thumbnail: item.thumbnail,
+          }));
+          setQueue(fallbackTracks);
         }
+
+        setSuccessToast('Iniciando playlist via Player Direto sem restrições de chave!');
+        setPlaylistLinkInput('');
+        setActiveTab('player');
       }
     } catch (err) {
       console.warn('[MusicWidget Load Playlist Link]:', err);
-      setErrorToast('Erro de conexão ao carregar a playlist.');
+      // Fallback local garantido sem travar
+      let targetId = raw;
+      const match = raw.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+      if (match) targetId = match[1];
+      setDirectEmbedPlaylistId(targetId);
+      setIsDirectEmbedMode(true);
+      setSuccessToast('Carregando no Player Direto de Contingência.');
+      setActiveTab('player');
     } finally {
       setIsLoadingPlaylistLink(false);
     }
@@ -500,19 +523,20 @@ export const MusicWidget: React.FC = () => {
     const token = googleAccessToken || localStorage.getItem('synapse_youtube_token');
 
     try {
-      const res = await fetch(`/api/youtube-playlist-items?playlistId=${encodeURIComponent(playlist.id)}`, {
+      const res = await fetch(`/api/youtube-proxy?playlistId=${encodeURIComponent(playlist.id)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
 
       const data = await res.json();
+      const rawItems = data.items || data.tracks || [];
 
-      if (res.ok && data.success && Array.isArray(data.tracks) && data.tracks.length > 0) {
-        const newQueue: MusicQueueItem[] = data.tracks.map((t: any) => ({
-          id: `${t.videoId}_${Math.random().toString(36).substring(2, 6)}`,
-          videoId: t.videoId,
-          title: t.title,
-          channel: t.channel,
-          thumbnail: t.thumbnail,
+      if (rawItems.length > 0 && !data.fallback) {
+        const newQueue: MusicQueueItem[] = rawItems.map((t: any) => ({
+          id: `${t.snippet?.resourceId?.videoId || t.videoId || t.id}_${Math.random().toString(36).substring(2, 6)}`,
+          videoId: t.snippet?.resourceId?.videoId || t.videoId || t.id,
+          title: t.snippet?.title || t.title || 'Faixa de Estudo',
+          channel: t.snippet?.channelTitle || t.channel || 'YouTube',
+          thumbnail: t.snippet?.thumbnails?.medium?.url || t.snippet?.thumbnails?.default?.url || t.thumbnail,
         }));
 
         setQueue(newQueue);
@@ -523,17 +547,26 @@ export const MusicWidget: React.FC = () => {
           title: newQueue[0].title,
         });
 
+        setIsDirectEmbedMode(false);
+        setDirectEmbedPlaylistId(playlist.id);
         safeCall('loadVideoById', newQueue[0].videoId);
         setIsPlaying(true);
 
         setSuccessToast(`Playlist "${playlist.title}" carregada com ${newQueue.length} faixas!`);
         setActiveTab('player');
       } else {
-        setErrorToast('Nenhuma faixa reproduzível encontrada nesta playlist.');
+        // Direct embed fallback
+        setDirectEmbedPlaylistId(playlist.id);
+        setIsDirectEmbedMode(true);
+        setSuccessToast(`Reproduzindo "${playlist.title}" via Player Direto!`);
+        setActiveTab('player');
       }
     } catch (err) {
       console.error('Erro ao carregar faixas da playlist:', err);
-      setErrorToast('Falha ao carregar faixas da playlist.');
+      setDirectEmbedPlaylistId(playlist.id);
+      setIsDirectEmbedMode(true);
+      setSuccessToast(`Reproduzindo "${playlist.title}" no Player Direto.`);
+      setActiveTab('player');
     } finally {
       setLoadingPlaylistId(null);
     }
@@ -982,12 +1015,38 @@ export const MusicWidget: React.FC = () => {
             {/* TAB 1: PLAYER VIEW */}
             {activeTab === 'player' && (
               <div className="space-y-3">
+                {/* Mode Indicator & Switcher */}
+                {directEmbedPlaylistId && (
+                  <div className="flex items-center justify-between px-2 py-1 bg-slate-950/70 border border-slate-800 rounded-xl text-[11px]">
+                    <span className="text-cyan-400 font-bold flex items-center gap-1">
+                      <Radio className="w-3 h-3 animate-pulse" />
+                      {isDirectEmbedMode ? 'Modo Player Direto (YouTube Oficial)' : 'Modo Fila Personalizada'}
+                    </span>
+                    <button
+                      onClick={() => setIsDirectEmbedMode(!isDirectEmbedMode)}
+                      className="text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer underline text-[10px]"
+                    >
+                      {isDirectEmbedMode ? 'Ver Fila' : 'Ver Player Direto'}
+                    </button>
+                  </div>
+                )}
+
                 {/* Embedded YouTube Container */}
                 <div
                   ref={containerRef}
                   className="w-full h-36 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 relative group shadow-inner"
                 >
-                  <YTContainer />
+                  {isDirectEmbedMode && directEmbedPlaylistId ? (
+                    <iframe
+                      className="w-full h-full rounded-2xl border-0"
+                      src={`https://www.youtube.com/embed/videoseries?list=${directEmbedPlaylistId}&autoplay=1`}
+                      title="YouTube Playlist Embed"
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <YTContainer />
+                  )}
                 </div>
 
                 {/* Player Controls Bar */}
@@ -1238,13 +1297,13 @@ export const MusicWidget: React.FC = () => {
               </div>
             )}
 
-            {/* TAB 3: USER YOUTUBE PLAYLISTS (OAUTH) */}
+            {/* TAB 3: USER YOUTUBE PLAYLISTS */}
             {activeTab === 'playlists' && (
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs font-bold text-slate-300">
                   <span className="flex items-center gap-1.5">
                     <FolderHeart className="w-4 h-4 text-cyan-400" />
-                    <span>Playlists do YouTube</span>
+                    <span>Playlists & YouTube Music</span>
                   </span>
                   {!playlistAuthError && (
                     <button
@@ -1258,34 +1317,78 @@ export const MusicWidget: React.FC = () => {
                   )}
                 </div>
 
+                {/* Google / YouTube Music Account Status Banner */}
+                {googleMusic.isAuthenticated ? (
+                  <div className="bg-indigo-950/40 border border-indigo-500/40 p-2.5 rounded-2xl flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
+                        {googleMusic.userEmail ? googleMusic.userEmail[0].toUpperCase() : 'G'}
+                      </div>
+                      <div className="truncate text-xs">
+                        <p className="font-semibold text-slate-200 truncate">{googleMusic.userEmail || 'Conta Google'}</p>
+                        <p className="text-[10px] text-emerald-400 font-mono">Conectado ao YouTube</p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => googleMusic.logoutGoogleMusic()}
+                      className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                    >
+                      Desconectar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-slate-950/60 border border-slate-800 p-2.5 rounded-2xl flex items-center justify-between gap-2">
+                    <span className="text-[11px] text-slate-400">Login YouTube Music:</span>
+                    <button
+                      onClick={() => googleMusic.loginGoogleMusic()}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <LogIn className="w-3 h-3" />
+                      <span>Login Google</span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Direct Playlist Link Importer (No login required) */}
                 <div className="bg-slate-950/70 border border-slate-800 p-3 rounded-2xl space-y-2">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                     Carregar Playlist por Link ou ID
                   </label>
-                  <div className="flex gap-2">
+                  <div className="space-y-2">
                     <input
                       type="text"
-                      placeholder="Cole link ou ID da playlist (ex: https://...)"
+                      placeholder="Cole link ou ID (ex: https://music.youtube.com/playlist?list=...)"
                       value={playlistLinkInput}
                       onChange={(e) => setPlaylistLinkInput(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') handleLoadPlaylistByLink();
                       }}
-                      className="flex-1 bg-slate-900 border border-slate-700/80 text-xs text-white placeholder-slate-500 px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
+                      className="w-full bg-slate-900 border border-slate-700/80 text-xs text-white placeholder-slate-500 px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
                     />
-                    <button
-                      onClick={() => handleLoadPlaylistByLink()}
-                      disabled={isLoadingPlaylistLink || !playlistLinkInput.trim()}
-                      className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-bold text-xs px-3 py-2 rounded-xl transition-colors shrink-0 cursor-pointer flex items-center gap-1"
-                    >
-                      {isLoadingPlaylistLink ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleLoadPlaylistByLink(undefined, false)}
+                        disabled={isLoadingPlaylistLink || !playlistLinkInput.trim()}
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-bold text-xs py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                        title="Carrega as faixas individualmente via Proxy Seguro"
+                      >
+                        {isLoadingPlaylistLink ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ListMusic className="w-3.5 h-3.5" />
+                        )}
+                        <span>Carregar Faixas</span>
+                      </button>
+                      <button
+                        onClick={() => handleLoadPlaylistByLink(undefined, true)}
+                        disabled={isLoadingPlaylistLink || !playlistLinkInput.trim()}
+                        className="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:bg-slate-800 text-white font-bold text-xs py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                        title="Toca a playlist direto sem depender de chave de API"
+                      >
                         <Play className="w-3.5 h-3.5 fill-white" />
-                      )}
-                      <span>Carregar</span>
-                    </button>
+                        <span>Tocar Direto</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 

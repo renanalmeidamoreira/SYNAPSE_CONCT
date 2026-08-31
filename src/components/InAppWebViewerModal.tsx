@@ -16,6 +16,8 @@ import {
   Loader2,
   Building2,
   BookOpen,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { callGeminiAPI } from '../utils/gemini';
 
@@ -115,6 +117,7 @@ export const InAppWebViewerModal: React.FC<InAppWebViewerModalProps> = ({
   const [notes, setNotes] = useState<string>(notesText);
   const [isSaved, setIsSaved] = useState<boolean>(false);
   const [showNotesSidebar, setShowNotesSidebar] = useState<boolean>(true);
+  const [isMaximized, setIsMaximized] = useState<boolean>(false);
   const [iframeKey, setIframeKey] = useState<number>(0);
   const [hasCopied, setHasCopied] = useState<boolean>(false);
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
@@ -185,29 +188,35 @@ export const InAppWebViewerModal: React.FC<InAppWebViewerModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[120] bg-slate-950/90 backdrop-blur-md flex flex-col animate-in fade-in duration-200 overflow-hidden">
+    <div
+      className={
+        isMaximized
+          ? 'fixed inset-0 z-[120] bg-slate-950 flex flex-col animate-in fade-in duration-200 overflow-hidden'
+          : 'fixed top-0 right-0 bottom-0 z-[120] w-full md:w-1/2 lg:w-7/12 bg-slate-950 border-l border-slate-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200 overflow-hidden'
+      }
+    >
       {/* Single Unified Header */}
-      <div className="bg-slate-950 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between gap-3 select-none shrink-0 shadow-lg">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex items-center gap-2 bg-indigo-950/80 border border-indigo-700/50 px-2.5 py-1 rounded-xl shrink-0">
-            <Globe className="w-4 h-4 text-indigo-400" />
-            <span className="text-xs font-bold text-indigo-200 truncate max-w-[200px] hidden sm:inline">
+      <div className="bg-slate-950 border-b border-slate-800 px-3.5 py-2.5 flex items-center justify-between gap-2.5 select-none shrink-0 shadow-lg">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 bg-indigo-950/80 border border-indigo-700/50 px-2 py-1 rounded-xl shrink-0">
+            <Globe className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="text-xs font-bold text-indigo-200 truncate max-w-[140px] sm:max-w-[200px]">
               {pageTitle}
             </span>
           </div>
 
-          <form onSubmit={handleNavigate} className="flex-1 max-w-xl min-w-[200px]">
+          <form onSubmit={handleNavigate} className="flex-1 max-w-md min-w-[140px]">
             <div className="relative flex items-center">
               <input
                 type="text"
                 value={inputUrl}
                 onChange={(e) => setInputUrl(e.target.value)}
                 placeholder="https://..."
-                className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono pr-8"
+                className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-1 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono pr-7"
               />
               <button
                 type="submit"
-                className="absolute right-2 text-slate-400 hover:text-white p-1 cursor-pointer"
+                className="absolute right-1.5 text-slate-400 hover:text-white p-0.5 cursor-pointer"
                 title="Navegar"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
@@ -216,32 +225,32 @@ export const InAppWebViewerModal: React.FC<InAppWebViewerModalProps> = ({
           </form>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 shrink-0">
           {/* Refresh */}
           <button
             onClick={handleRefresh}
             className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-colors cursor-pointer"
             title="Recarregar"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-3.5 h-3.5" />
           </button>
 
           {/* Copy link */}
           <button
             onClick={handleCopyUrl}
-            className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-colors cursor-pointer"
+            className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-colors cursor-pointer hidden sm:block"
             title="Copiar URL"
           >
-            {hasCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+            {hasCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
 
           {/* Open Official Portal */}
           <button
             onClick={handleOpenExternal}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-600/30 cursor-pointer"
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/30 cursor-pointer"
             title="Abrir no portal oficial"
           >
-            <span>Abrir no Portal Oficial</span>
+            <span className="hidden sm:inline">Portal Oficial</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </button>
 
@@ -255,16 +264,25 @@ export const InAppWebViewerModal: React.FC<InAppWebViewerModalProps> = ({
             }`}
             title={showNotesSidebar ? 'Ocultar Caderno' : 'Exibir Caderno'}
           >
-            {showNotesSidebar ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+            {showNotesSidebar ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
           </button>
 
-          {/* Close Modal */}
+          {/* Toggle Maximize / Side Panel */}
+          <button
+            onClick={() => setIsMaximized(!isMaximized)}
+            className="p-1.5 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white rounded-xl border border-slate-800 transition-colors cursor-pointer"
+            title={isMaximized ? 'Restaurar para Painel Lateral' : 'Maximizar Tela Cheia'}
+          >
+            {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Close Panel */}
           <button
             onClick={onClose}
-            className="p-1.5 bg-slate-900 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 rounded-xl border border-slate-800 hover:border-rose-700/50 transition-colors ml-1 cursor-pointer"
-            title="Voltar ao SYNAPSE"
+            className="p-1.5 bg-slate-900 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 rounded-xl border border-slate-800 hover:border-rose-700/50 transition-colors ml-0.5 cursor-pointer"
+            title="Fechar Painel Lateral"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       </div>

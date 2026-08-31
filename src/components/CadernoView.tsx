@@ -21,9 +21,6 @@ export const CadernoView: React.FC<CadernoViewProps> = ({
 
   const handleSave = () => {
     onSaveNotes(localNotes);
-    if (typeof (window as any).saveCourseNotes === 'function') {
-      (window as any).saveCourseNotes();
-    }
     setShowSavedToast(true);
     setTimeout(() => setShowSavedToast(false), 2500);
   };

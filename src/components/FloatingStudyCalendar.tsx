@@ -72,9 +72,12 @@ export const FloatingStudyCalendar: React.FC = () => {
     };
     window.addEventListener('study-events-updated', handleEventsUpdated);
     window.addEventListener('storage', handleEventsUpdated);
+    const handleOpenCalendar = () => setIsOpen(true);
+    window.addEventListener('open-floating-calendar', handleOpenCalendar);
     return () => {
       window.removeEventListener('study-events-updated', handleEventsUpdated);
       window.removeEventListener('storage', handleEventsUpdated);
+      window.removeEventListener('open-floating-calendar', handleOpenCalendar);
     };
   }, []);
 
