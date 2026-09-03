@@ -19,10 +19,15 @@ import {
   Maximize2
 } from 'lucide-react';
 import { StudyEvent } from './StudyCalendar';
+import { useTheme } from './ThemeProvider';
 
 const STORAGE_KEY = 'synapse_study_agenda_events';
 
 export const FloatingStudyCalendar: React.FC = () => {
+  const { theme } = useTheme();
+  const isSwat = theme === 'swat';
+  const isPink = theme === 'pink';
+
   const [isOpen, setIsOpen] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [events, setEvents] = useState<StudyEvent[]>(() => {
@@ -146,18 +151,26 @@ export const FloatingStudyCalendar: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 print:hidden font-sans">
+    <div className={`fixed bottom-6 ${isOpen ? 'right-4 sm:right-6' : 'right-20 sm:right-22'} z-40 print:hidden font-sans pointer-events-auto transition-all`}>
       {/* Floating Trigger Button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
-          className="group flex items-center gap-2.5 bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-bold px-4 py-3 rounded-2xl shadow-xl shadow-indigo-600/30 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-white/20"
+          className={`group flex items-center gap-2.5 font-bold px-4 py-3 rounded-2xl shadow-xl hover:scale-105 active:scale-95 transition-all cursor-pointer ${
+            isSwat
+              ? 'bg-cyan-500 hover:bg-cyan-400 text-black shadow-cyan-500/25 border border-cyan-400/60 font-extrabold'
+              : isPink
+              ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-600/25 border border-rose-400/40 font-extrabold'
+              : 'bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white shadow-indigo-600/30 border border-white/20'
+          }`}
           title="Abrir Calendário Flutuante & Agenda"
         >
           <div className="relative">
-            <CalendarIcon className="w-5 h-5 text-cyan-200" />
+            <CalendarIcon className={`w-5 h-5 ${isSwat ? 'text-black' : isPink ? 'text-rose-100' : 'text-cyan-200'}`} />
             {todayPendingCount > 0 && (
-              <span className="absolute -top-2 -right-2.5 w-5 h-5 bg-rose-500 text-white text-[10px] font-extrabold rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-pulse">
+              <span className={`absolute -top-2 -right-2.5 w-5 h-5 text-[10px] font-extrabold rounded-full flex items-center justify-center border-2 border-white dark:border-slate-900 shadow-sm animate-pulse ${
+                isSwat ? 'bg-cyan-400 text-black' : 'bg-rose-500 text-white'
+              }`}>
                 {todayPendingCount}
               </span>
             )}
@@ -170,21 +183,45 @@ export const FloatingStudyCalendar: React.FC = () => {
 
       {/* Floating Modal / Panel */}
       {isOpen && (
-        <div className="w-[360px] sm:w-[420px] max-h-[85vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+        <div className={`w-[360px] sm:w-[420px] max-h-[85vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200 border ${
+          isSwat
+            ? 'bg-[#070b12] text-slate-100 border-cyan-500/30'
+            : isPink
+            ? 'bg-[#120718] text-rose-100 border-rose-500/30'
+            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+        }`}>
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800">
+          <div className={`flex items-center justify-between px-4 py-3 border-b ${
+            isSwat
+              ? 'bg-[#09111c] border-cyan-500/20'
+              : isPink
+              ? 'bg-[#190a22] border-rose-500/20'
+              : 'bg-slate-50 dark:bg-slate-950/80 border-slate-200 dark:border-slate-800'
+          }`}>
             <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
+              <div className={`p-2 rounded-xl ${
+                isSwat
+                  ? 'bg-cyan-500/15 text-cyan-300'
+                  : isPink
+                  ? 'bg-rose-500/15 text-rose-300'
+                  : 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+              }`}>
                 <CalendarIcon className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
-                  <span>Calendário Interativo</span>
-                  <span className="text-[10px] text-cyan-500 bg-cyan-50 dark:bg-cyan-950/80 border border-cyan-200 dark:border-cyan-800 px-1.5 py-0.2 rounded-md font-semibold">
+                <h3 className="text-xs font-bold flex items-center gap-1.5">
+                  <span className={isSwat ? 'text-cyan-200' : isPink ? 'text-rose-100' : 'text-slate-800 dark:text-slate-100'}>Calendário Interativo</span>
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-semibold border ${
+                    isSwat
+                      ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/40'
+                      : isPink
+                      ? 'bg-rose-950/80 text-rose-300 border-rose-500/40'
+                      : 'text-cyan-500 bg-cyan-50 dark:bg-cyan-950/80 border-cyan-200 dark:border-cyan-800'
+                  }`}>
                     SYNAPSE
                   </span>
                 </h3>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                <p className="text-[10px] text-slate-400">
                   Clique nos dias para agendar sessões
                 </p>
               </div>
@@ -192,18 +229,24 @@ export const FloatingStudyCalendar: React.FC = () => {
 
             <button
               onClick={() => setIsOpen(false)}
-              className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-xl hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              className="p-1.5 text-slate-400 hover:text-slate-200 rounded-xl hover:bg-slate-800/50 transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
 
           {/* Calendar Picker (react-day-picker) */}
-          <div className="p-3 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800 flex justify-center">
+          <div className={`p-3 border-b flex justify-center ${
+            isSwat
+              ? 'bg-[#070b12] border-cyan-500/20'
+              : isPink
+              ? 'bg-[#120718] border-rose-500/20'
+              : 'bg-white dark:bg-slate-900 border-slate-100 dark:border-slate-800'
+          }`}>
             <style>{`
               .rdp-root {
-                --rdp-accent-color: #4f46e5;
-                --rdp-accent-background-color: #e0e7ff;
+                --rdp-accent-color: ${isSwat ? '#00f0ff' : isPink ? '#f43f5e' : '#4f46e5'};
+                --rdp-accent-background-color: ${isSwat ? '#00f0ff22' : isPink ? '#f43f5e22' : '#e0e7ff'};
                 margin: 0;
               }
               .rdp-day {
@@ -214,12 +257,11 @@ export const FloatingStudyCalendar: React.FC = () => {
                 font-weight: 500;
               }
               .rdp-day_selected {
-                background-color: #4f46e5 !important;
-                color: #ffffff !important;
+                background-color: ${isSwat ? '#00f0ff !important; color: #000000 !important' : isPink ? '#f43f5e !important; color: #ffffff !important' : '#4f46e5 !important; color: #ffffff !important'};
                 font-weight: bold;
               }
               .rdp-day_today {
-                border: 1.5px solid #06b6d4;
+                border: 1.5px solid ${isSwat ? '#00f0ff' : isPink ? '#f43f5e' : '#06b6d4'};
                 font-weight: bold;
               }
               .rdp-caption_label {
@@ -243,10 +285,10 @@ export const FloatingStudyCalendar: React.FC = () => {
                 width: 4px;
                 height: 4px;
                 border-radius: 50%;
-                background-color: #4f46e5;
+                background-color: ${isSwat ? '#00f0ff' : isPink ? '#f43f5e' : '#4f46e5'};
               }
               .rdp-day_selected.has-event::after {
-                background-color: #ffffff;
+                background-color: ${isSwat ? '#000000' : '#ffffff'};
               }
             `}</style>
             <DayPicker
@@ -371,7 +413,13 @@ export const FloatingStudyCalendar: React.FC = () => {
 
                 <button
                   type="submit"
-                  className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs py-2 rounded-xl transition-colors cursor-pointer shadow-xs"
+                  className={`w-full font-bold text-xs py-2 rounded-xl transition-colors cursor-pointer shadow-xs ${
+                    isSwat
+                      ? 'bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold'
+                      : isPink
+                      ? 'bg-rose-600 hover:bg-rose-500 text-white font-extrabold'
+                      : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                  }`}
                 >
                   Salvar Evento
                 </button>

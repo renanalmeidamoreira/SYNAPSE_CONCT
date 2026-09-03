@@ -93,13 +93,14 @@ export const ConnectionsModal: React.FC<ConnectionsModalProps> = ({ onClose }) =
         setYoutubeStatus('NOT_CONNECTED');
       }
     } catch (err: any) {
-      console.warn('[ConnectionsModal YouTube]:', err);
       const msg = err?.message || '';
-      if (msg.includes('POPUP_BLOCKED')) {
+      const code = err?.code || '';
+      if (msg.includes('POPUP_BLOCKED') || code === 'auth/popup-blocked') {
         setYtError('Pop-up bloqueado pelo navegador. Permita pop-ups para autorizar o YouTube.');
-      } else if (msg.includes('fechada')) {
-        setYtError('A janela de autorização foi fechada antes de concluir.');
+      } else if (msg.includes('fechada') || code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        setYtError(null);
       } else {
+        console.warn('[ConnectionsModal YouTube]:', err);
         setYtError('Não foi possível conectar ao YouTube no momento.');
       }
       setYoutubeStatus('NOT_CONNECTED');

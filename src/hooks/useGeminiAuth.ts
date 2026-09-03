@@ -14,10 +14,17 @@ const LLAMAFILE_ENABLED_KEY = 'synapse_llamafile_enabled';
 const LLAMAFILE_ENDPOINT_KEY = 'synapse_llamafile_endpoint';
 
 export function useGeminiAuth() {
+  const sanitizeModel = (rawModel: string | null): string => {
+    if (!rawModel || rawModel === 'gemini-3.5-flash' || rawModel === 'gemini-3.6-flash' || rawModel === 'gemini-3.7-flash') {
+      return 'gemini-3.1-flash-lite';
+    }
+    return rawModel;
+  };
+
   const [geminiState, setGeminiState] = useState<GeminiAuthState>(() => {
     try {
       const savedKey = localStorage.getItem(GEMINI_CUSTOM_KEY);
-      const savedModel = localStorage.getItem(GEMINI_PREFERRED_MODEL_KEY) || 'gemini-3.5-flash';
+      const savedModel = sanitizeModel(localStorage.getItem(GEMINI_PREFERRED_MODEL_KEY));
       const llamaEnabled = localStorage.getItem(LLAMAFILE_ENABLED_KEY) === 'true';
       const llamaEndpoint = localStorage.getItem(LLAMAFILE_ENDPOINT_KEY) || 'http://127.0.0.1:8080';
 
@@ -32,7 +39,7 @@ export function useGeminiAuth() {
       return {
         hasCustomKey: false,
         apiKey: null,
-        preferredModel: 'gemini-3.5-flash',
+        preferredModel: 'gemini-3.1-flash-lite',
         useLocalLlamafile: false,
         llamafileEndpoint: 'http://127.0.0.1:8080',
       };
@@ -42,7 +49,7 @@ export function useGeminiAuth() {
   const loadSettings = useCallback(() => {
     try {
       const savedKey = localStorage.getItem(GEMINI_CUSTOM_KEY);
-      const savedModel = localStorage.getItem(GEMINI_PREFERRED_MODEL_KEY) || 'gemini-3.5-flash';
+      const savedModel = sanitizeModel(localStorage.getItem(GEMINI_PREFERRED_MODEL_KEY));
       const llamaEnabled = localStorage.getItem(LLAMAFILE_ENABLED_KEY) === 'true';
       const llamaEndpoint = localStorage.getItem(LLAMAFILE_ENDPOINT_KEY) || 'http://127.0.0.1:8080';
 

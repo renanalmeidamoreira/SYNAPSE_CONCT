@@ -25,9 +25,18 @@ import {
   ExternalLink,
   LogIn,
   RefreshCw,
+  History,
+  Heart,
+  Clock,
+  ChevronDown,
+  ChevronUp,
+  SlidersHorizontal,
+  Disc,
+  Music,
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useServiceAuthContext } from '../context/ServiceAuthContext';
+import { useTheme } from './ThemeProvider';
 
 const YTContainer = React.memo(() => <div id="yt-widget-iframe" className="w-full h-full" />, () => true);
 
@@ -52,7 +61,24 @@ export interface UserPlaylist {
   title: string;
   description?: string;
   thumbnail?: string;
-  itemCount: number;
+  itemCount?: number;
+  isLikedList?: boolean;
+  link?: string;
+  deepLink?: string;
+}
+
+export interface RecentActivityItem {
+  id: string;
+  title: string;
+  channelTitle?: string;
+  description?: string;
+  thumbnail?: string;
+  videoId?: string | null;
+  playlistId?: string | null;
+  publishedAt?: string;
+  type?: string;
+  link?: string;
+  deepLink?: string;
 }
 
 export interface MusicQueueItem {
@@ -106,41 +132,19 @@ export function parseYouTubeUrl(
     };
   }
 
+  // Se for id direto de playlist (ex: LM, LL ou PL...)
+  if (/^[A-Za-z0-9_-]{2,}$/.test(trimmed) && !trimmed.includes('http') && !trimmed.includes('/')) {
+    return {
+      type: 'playlist',
+      id: trimmed,
+      listId: trimmed,
+      isMusicDomain,
+      isAutoMix,
+    };
+  }
+
   return null;
 }
-
-const PRESET_PLAYLISTS: { title: string; desc: string; type: 'playlist' | 'video'; id: string; listId?: string }[] = [
-  {
-    title: 'Lofi Study Beats & Chill',
-    desc: 'Batidas calmas contínuas para foco absoluto',
-    type: 'video',
-    id: 'WPni755-Krg',
-  },
-  {
-    title: 'Música Clássica para Estudo',
-    desc: 'Mozart, Beethoven & Bach de alta produtividade',
-    type: 'video',
-    id: '5qap5aO4i9A',
-  },
-  {
-    title: 'Sons da Chuva & Tempestade Suave',
-    desc: 'Ruído branco e ambientação relaxante',
-    type: 'video',
-    id: 'eKFTSSKCzWA',
-  },
-  {
-    title: 'Synthwave & Retrô Focus',
-    desc: 'Eletrônica suave e contínua para concentração',
-    type: 'video',
-    id: '4xDzrJKXOOY',
-  },
-  {
-    title: 'Bossa Nova Instrumental Relax',
-    desc: 'Violão suave e ritmo acolhedor para leitura',
-    type: 'video',
-    id: 'TURbeWK2wwg',
-  },
-];
 
 declare global {
   interface Window {
@@ -152,6 +156,9 @@ declare global {
 export const MusicWidget: React.FC = () => {
   const { googleAccessToken, authorizeYouTube, user } = useAuth();
   const { googleMusic } = useServiceAuthContext();
+  const { theme } = useTheme();
+  const isSwat = theme === 'swat';
+  const isPink = theme === 'pink';
 
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
@@ -166,8 +173,10 @@ export const MusicWidget: React.FC = () => {
   // Search Results state
   const [searchResults, setSearchResults] = useState<MusicSearchResult[] | null>(null);
 
-  // YouTube OAuth Playlists state
+  // YouTube OAuth Playlists & Library state
   const [userPlaylists, setUserPlaylists] = useState<UserPlaylist[]>([]);
+  const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([]);
+  const [librarySubTab, setLibrarySubTab] = useState<'playlists' | 'recents'>('playlists');
   const [loadingPlaylists, setLoadingPlaylists] = useState<boolean>(false);
   const [playlistAuthError, setPlaylistAuthError] = useState<boolean>(false);
   const [popupBlocked, setPopupBlocked] = useState<boolean>(false);
@@ -214,17 +223,17 @@ export const MusicWidget: React.FC = () => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
-  // Position state for dragging
+  // Position state for dragging (default placed safely clear of sidebar)
   const [position, setPosition] = useState<{ x: number; y: number }>({
-    x: 16,
-    y: 80,
+    x: 304,
+    y: 72,
   });
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const dragStartRef = useRef<{ startX: number; startY: number; posX: number; posY: number }>({
     startX: 0,
     startY: 0,
-    posX: 16,
-    posY: 80,
+    posX: 304,
+    posY: 72,
   });
 
   // Audio player state
@@ -238,6 +247,45 @@ export const MusicWidget: React.FC = () => {
   const [volume, setVolume] = useState<number>(80);
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [playerReady, setPlayerReady] = useState<boolean>(false);
+
+  // Timeline / Seek state
+  const [currentTime, setCurrentTime] = useState<number>(0);
+  const [duration, setDuration] = useState<number>(0);
+  const [isSeeking, setIsSeeking] = useState<boolean>(false);
+  const [seekValue, setSeekValue] = useState<number>(0);
+
+  // Playlist track list UI state
+  const [isPlaylistTracksExpanded, setIsPlaylistTracksExpanded] = useState<boolean>(true);
+  const [trackSearchFilter, setTrackSearchFilter] = useState<string>('');
+
+  const formatTime = (secs: number) => {
+    if (isNaN(secs) || secs < 0) return '00:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
+  };
+
+  const handleSeek = (newSec: number) => {
+    setCurrentTime(newSec);
+    safeCall('seekTo', newSec, true);
+  };
+
+  // Poll current time and duration when playing
+  useEffect(() => {
+    if (!isPlaying) return;
+    const interval = setInterval(() => {
+      if (isSeeking) return;
+      if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+        try {
+          const cur = playerRef.current.getCurrentTime() || 0;
+          const dur = playerRef.current.getDuration() || 0;
+          setCurrentTime(cur);
+          if (dur > 0) setDuration(dur);
+        } catch (e) {}
+      }
+    }, 500);
+    return () => clearInterval(interval);
+  }, [isPlaying, isSeeking]);
 
   const playerRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -343,9 +391,29 @@ export const MusicWidget: React.FC = () => {
     }
   }, []);
 
-  // Fetch YouTube Playlists when tab is opened
+  // Unified Music Token & Connection status
+  const effectiveToken =
+    googleMusic.accessToken ||
+    googleAccessToken ||
+    (typeof window !== 'undefined'
+      ? localStorage.getItem('synapse_youtube_token') || localStorage.getItem('synapse_google_music_token')
+      : null);
+
+  const isConnected = Boolean(googleMusic.isAuthenticated || effectiveToken);
+  const connectedUserEmail =
+    googleMusic.userEmail ||
+    user?.email ||
+    (typeof window !== 'undefined' ? localStorage.getItem('synapse_google_music_email') : null);
+
+  // Fetch YouTube Library (Playlists + Recent activities) automatically
   const fetchUserPlaylists = async (overrideToken?: string) => {
-    const token = overrideToken || googleAccessToken || localStorage.getItem('synapse_youtube_token');
+    const token =
+      overrideToken ||
+      googleMusic.accessToken ||
+      googleAccessToken ||
+      localStorage.getItem('synapse_youtube_token') ||
+      localStorage.getItem('synapse_google_music_token');
+
     if (!token) {
       setPlaylistAuthError(true);
       return;
@@ -355,7 +423,7 @@ export const MusicWidget: React.FC = () => {
     setPlaylistAuthError(false);
 
     try {
-      const res = await fetch('/api/youtube-playlists', {
+      const res = await fetch('/api/youtube-library', {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -363,42 +431,66 @@ export const MusicWidget: React.FC = () => {
 
       const data = await res.json();
 
-      if (res.ok && data.success && Array.isArray(data.playlists)) {
-        setUserPlaylists(data.playlists);
+      if (res.ok && data.success) {
+        if (Array.isArray(data.playlists)) {
+          setUserPlaylists(data.playlists);
+        }
+        if (Array.isArray(data.recentActivities)) {
+          setRecentActivities(data.recentActivities);
+        }
+        setPlaylistAuthError(false);
       } else {
         if (res.status === 401 || data?.error?.code === 'AUTH_EXPIRED') {
           setPlaylistAuthError(true);
         } else {
-          setErrorToast(data?.error?.message || 'Erro ao carregar playlists do YouTube.');
+          setErrorToast(data?.error?.message || 'Erro ao carregar dados do YouTube Music.');
         }
       }
     } catch (err: any) {
-      console.error('Erro ao buscar playlists:', err);
+      console.error('Erro ao buscar biblioteca do YouTube:', err);
       setPlaylistAuthError(true);
     } finally {
       setLoadingPlaylists(false);
     }
   };
 
+  // Auto-fetch when playlists tab is opened and user is connected
   useEffect(() => {
-    if (activeTab === 'playlists' && (googleAccessToken || localStorage.getItem('synapse_youtube_token'))) {
-      fetchUserPlaylists();
+    if (activeTab === 'playlists' && effectiveToken) {
+      fetchUserPlaylists(effectiveToken);
     }
-  }, [activeTab, googleAccessToken]);
+  }, [activeTab, effectiveToken]);
 
+  // Auto-fetch when user logs in via googleMusic
+  useEffect(() => {
+    if (googleMusic.isAuthenticated && googleMusic.accessToken) {
+      fetchUserPlaylists(googleMusic.accessToken);
+    }
+  }, [googleMusic.isAuthenticated, googleMusic.accessToken]);
+
+  // Unified Connect Action
   const handleConnectYouTube = async () => {
     setErrorToast(null);
     setPopupBlocked(false);
+    setLoadingPlaylists(true);
 
     try {
-      // Direct call on user gesture to prevent browser popup block heuristics
-      const tokenPromise = authorizeYouTube();
-      setLoadingPlaylists(true);
-      const token = await tokenPromise;
-
+      // 1. Tenta autenticação direta pelo hook de Google Music com escopo do YouTube
+      const token = await googleMusic.loginGoogleMusic();
       if (token) {
+        setPlaylistAuthError(false);
+        setSuccessToast('YouTube Music conectado com sucesso!');
         await fetchUserPlaylists(token);
-        setSuccessToast('Conta do YouTube conectada com sucesso!');
+        return;
+      }
+
+      // 2. Fallback via authorizeYouTube
+      const authContextToken = await authorizeYouTube();
+      if (authContextToken) {
+        setPlaylistAuthError(false);
+        setSuccessToast('YouTube Music conectado com sucesso!');
+        await fetchUserPlaylists(authContextToken);
+        return;
       }
     } catch (err: any) {
       const code = err?.code || '';
@@ -406,21 +498,47 @@ export const MusicWidget: React.FC = () => {
 
       if (code === 'auth/popup-blocked' || msg.includes('POPUP_BLOCKED') || msg.includes('popup-blocked')) {
         setPopupBlocked(true);
-        setErrorToast('Pop-up bloqueado pelo navegador. Habilite pop-ups para esta página ou carregue uma playlist colando o link/ID abaixo.');
-      } else if (code === 'auth/popup-closed-by-user' || msg.includes('fechada antes de concluir')) {
-        setErrorToast('A janela de login foi fechada antes da autorização.');
+        setErrorToast('Pop-up bloqueado pelo navegador. Habilite pop-ups para esta página ou cole o link da playlist.');
+      } else if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        msg.includes('fechada') ||
+        msg.includes('popup-closed-by-user')
+      ) {
+        setErrorToast(null);
       } else {
         console.warn('[MusicWidget Connect Warning]:', err?.message || err);
-        setErrorToast('Não foi possível conectar ao YouTube. Use o campo abaixo para carregar sua playlist.');
+        setErrorToast('Não foi possível conectar ao YouTube Music. Tente novamente.');
       }
     } finally {
       setLoadingPlaylists(false);
     }
   };
 
+  // Unified Disconnect Action
+  const handleDisconnectYouTube = () => {
+    googleMusic.logoutGoogleMusic();
+    try {
+      localStorage.removeItem('synapse_youtube_token');
+      localStorage.removeItem('synapse_google_music_token');
+      localStorage.removeItem('synapse_google_music_email');
+    } catch (e) {}
+    setUserPlaylists([]);
+    setRecentActivities([]);
+    setPlaylistAuthError(true);
+    setSuccessToast('Conta do YouTube desconectada.');
+  };
+
   const handleLoadPlaylistByLink = async (playlistIdentifier?: string, forceDirectEmbed: boolean = false) => {
     const raw = (playlistIdentifier || playlistLinkInput).trim();
     if (!raw) return;
+
+    if (raw.includes('music.youtube.com/library') && !raw.includes('list=')) {
+      setSuccessToast('Sincronizando com sua Biblioteca do YouTube Music...');
+      await fetchUserPlaylists();
+      setPlaylistLinkInput('');
+      return;
+    }
 
     setErrorToast(null);
     setIsLoadingPlaylistLink(true);
@@ -438,32 +556,69 @@ export const MusicWidget: React.FC = () => {
         if (match) targetId = match[1];
       }
 
+      // Handle Liked Music (LM)
+      if (targetId === 'LM') {
+        setDirectEmbedPlaylistId('LM');
+        setIsDirectEmbedMode(true);
+        setCurrentItem({
+          type: 'playlist',
+          id: 'LM',
+          title: 'Músicas que gostei (YouTube Music)',
+          listId: 'LM',
+        });
+        setIsPlaying(true);
+        setSuccessToast('Iniciando Músicas Curtidas do YouTube Music!');
+        setPlaylistLinkInput('');
+        setActiveTab('player');
+        return;
+      }
+
       // If user requested direct embed mode or single video
       if (forceDirectEmbed) {
         setDirectEmbedPlaylistId(targetId);
         setIsDirectEmbedMode(true);
+        setCurrentItem({
+          type: 'playlist',
+          id: targetId,
+          title: 'Playlist Direta',
+          listId: targetId,
+        });
+        setIsPlaying(true);
         setSuccessToast('Iniciando reprodução no Player Direto do YouTube!');
         setPlaylistLinkInput('');
         setActiveTab('player');
         return;
       }
 
-      // Call secure server proxy
+      // Call secure server proxy with fallback
       const token = googleAccessToken || localStorage.getItem('synapse_youtube_token');
-      const res = await fetch(`/api/youtube-proxy?playlistId=${encodeURIComponent(targetId)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      let rawItems: any[] = [];
+      try {
+        const itemRes = await fetch(`/api/youtube-playlist-items?playlistId=${encodeURIComponent(targetId)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const itemData = await itemRes.json();
+        if (itemData.success && Array.isArray(itemData.tracks) && itemData.tracks.length > 0) {
+          rawItems = itemData.tracks;
+        }
+      } catch (e) {}
 
-      const data = await res.json();
+      if (rawItems.length === 0) {
+        try {
+          const res = await fetch(`/api/youtube-proxy?playlistId=${encodeURIComponent(targetId)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const data = await res.json();
+          rawItems = data.items || data.tracks || [];
+        } catch (e) {}
+      }
 
-      const rawItems = data.items || data.tracks || [];
-
-      if (rawItems.length > 0 && !data.fallback) {
+      if (rawItems.length > 0) {
         const newQueue: MusicQueueItem[] = rawItems.map((t: any) => ({
           id: `${t.snippet?.resourceId?.videoId || t.videoId || t.id}_${Math.random().toString(36).substring(2, 6)}`,
           videoId: t.snippet?.resourceId?.videoId || t.videoId || t.id,
-          title: t.snippet?.title || t.title || 'Faixa de Estudo',
-          channel: t.snippet?.channelTitle || t.channel || 'YouTube',
+          title: t.snippet?.title || t.title || 'Faixa da Playlist',
+          channel: t.snippet?.channelTitle || t.channel || 'YouTube Music',
           thumbnail: t.snippet?.thumbnails?.medium?.url || t.snippet?.thumbnails?.default?.url || t.thumbnail,
         }));
 
@@ -484,34 +639,37 @@ export const MusicWidget: React.FC = () => {
         setSuccessToast(`Playlist sincronizada com ${newQueue.length} faixas!`);
         setActiveTab('player');
       } else {
-        // Fallback robusto: se a API não retornou faixas ou está em fallback, toca no Player Direto
+        // Direct embed fallback sem sugestões falsas
         setDirectEmbedPlaylistId(targetId);
         setIsDirectEmbedMode(true);
-
-        if (data.defaultPlaylist && Array.isArray(data.defaultPlaylist)) {
-          const fallbackTracks: MusicQueueItem[] = data.defaultPlaylist.map((item: any) => ({
-            id: `${item.url}_fallback`,
-            videoId: item.url,
-            title: item.title,
-            channel: 'Synapse Study Focus',
-            thumbnail: item.thumbnail,
-          }));
-          setQueue(fallbackTracks);
-        }
-
-        setSuccessToast('Iniciando playlist via Player Direto sem restrições de chave!');
+        setCurrentItem({
+          type: 'playlist',
+          id: targetId,
+          title: 'Playlist do YouTube Music',
+          listId: targetId,
+        });
+        safeCall('loadPlaylist', { list: targetId, listType: 'playlist', index: 0 });
+        setIsPlaying(true);
+        setSuccessToast('Iniciando reprodução no Player Direto!');
         setPlaylistLinkInput('');
         setActiveTab('player');
       }
     } catch (err) {
       console.warn('[MusicWidget Load Playlist Link]:', err);
-      // Fallback local garantido sem travar
       let targetId = raw;
       const match = raw.match(/[?&]list=([a-zA-Z0-9_-]+)/);
       if (match) targetId = match[1];
       setDirectEmbedPlaylistId(targetId);
       setIsDirectEmbedMode(true);
-      setSuccessToast('Carregando no Player Direto de Contingência.');
+      setCurrentItem({
+        type: 'playlist',
+        id: targetId,
+        title: 'Playlist do YouTube Music',
+        listId: targetId,
+      });
+      safeCall('loadPlaylist', { list: targetId, listType: 'playlist', index: 0 });
+      setIsPlaying(true);
+      setSuccessToast('Carregando no Player do YouTube.');
       setActiveTab('player');
     } finally {
       setIsLoadingPlaylistLink(false);
@@ -522,20 +680,52 @@ export const MusicWidget: React.FC = () => {
     setLoadingPlaylistId(playlist.id);
     const token = googleAccessToken || localStorage.getItem('synapse_youtube_token');
 
-    try {
-      const res = await fetch(`/api/youtube-proxy?playlistId=${encodeURIComponent(playlist.id)}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+    // Suporte especial a Músicas Curtidas (LM)
+    if (playlist.id === 'LM' || playlist.isLikedList) {
+      setDirectEmbedPlaylistId('LM');
+      setIsDirectEmbedMode(true);
+      setCurrentItem({
+        type: 'playlist',
+        id: 'LM',
+        title: 'Músicas que gostei (YouTube Music)',
+        listId: 'LM',
       });
+      safeCall('loadPlaylist', { list: 'LM', listType: 'playlist', index: 0 });
+      setIsPlaying(true);
+      setSuccessToast('Reproduzindo Músicas Curtidas do YouTube Music!');
+      setActiveTab('player');
+      setLoadingPlaylistId(null);
+      return;
+    }
 
-      const data = await res.json();
-      const rawItems = data.items || data.tracks || [];
+    try {
+      let rawItems: any[] = [];
+      try {
+        const itemRes = await fetch(`/api/youtube-playlist-items?playlistId=${encodeURIComponent(playlist.id)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const itemData = await itemRes.json();
+        if (itemData.success && Array.isArray(itemData.tracks) && itemData.tracks.length > 0) {
+          rawItems = itemData.tracks;
+        }
+      } catch (e) {}
 
-      if (rawItems.length > 0 && !data.fallback) {
+      if (rawItems.length === 0) {
+        try {
+          const res = await fetch(`/api/youtube-proxy?playlistId=${encodeURIComponent(playlist.id)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const data = await res.json();
+          rawItems = data.items || data.tracks || [];
+        } catch (e) {}
+      }
+
+      if (rawItems.length > 0) {
         const newQueue: MusicQueueItem[] = rawItems.map((t: any) => ({
           id: `${t.snippet?.resourceId?.videoId || t.videoId || t.id}_${Math.random().toString(36).substring(2, 6)}`,
           videoId: t.snippet?.resourceId?.videoId || t.videoId || t.id,
-          title: t.snippet?.title || t.title || 'Faixa de Estudo',
-          channel: t.snippet?.channelTitle || t.channel || 'YouTube',
+          title: t.snippet?.title || t.title || 'Faixa da Playlist',
+          channel: t.snippet?.channelTitle || t.channel || 'YouTube Music',
           thumbnail: t.snippet?.thumbnails?.medium?.url || t.snippet?.thumbnails?.default?.url || t.thumbnail,
         }));
 
@@ -555,9 +745,17 @@ export const MusicWidget: React.FC = () => {
         setSuccessToast(`Playlist "${playlist.title}" carregada com ${newQueue.length} faixas!`);
         setActiveTab('player');
       } else {
-        // Direct embed fallback
+        // Direct embed fallback sem sugestões falsas
         setDirectEmbedPlaylistId(playlist.id);
         setIsDirectEmbedMode(true);
+        setCurrentItem({
+          type: 'playlist',
+          id: playlist.id,
+          title: playlist.title,
+          listId: playlist.id,
+        });
+        safeCall('loadPlaylist', { list: playlist.id, listType: 'playlist', index: 0 });
+        setIsPlaying(true);
         setSuccessToast(`Reproduzindo "${playlist.title}" via Player Direto!`);
         setActiveTab('player');
       }
@@ -565,6 +763,13 @@ export const MusicWidget: React.FC = () => {
       console.error('Erro ao carregar faixas da playlist:', err);
       setDirectEmbedPlaylistId(playlist.id);
       setIsDirectEmbedMode(true);
+      setCurrentItem({
+        type: 'playlist',
+        id: playlist.id,
+        title: playlist.title,
+        listId: playlist.id,
+      });
+      setIsPlaying(true);
       setSuccessToast(`Reproduzindo "${playlist.title}" no Player Direto.`);
       setActiveTab('player');
     } finally {
@@ -785,16 +990,21 @@ export const MusicWidget: React.FC = () => {
   const handleNextTrack = () => {
     if (currentIndex < queue.length - 1) {
       playQueueIndex(currentIndex + 1);
+    } else if (queue.length > 0) {
+      playQueueIndex(0);
+      setSuccessToast('Reiniciando fila desde o início');
     } else {
-      setErrorToast('Você está na última música da fila.');
+      safeCall('nextVideo');
     }
   };
 
   const handlePrevTrack = () => {
     if (currentIndex > 0) {
       playQueueIndex(currentIndex - 1);
+    } else if (queue.length > 0) {
+      playQueueIndex(queue.length - 1);
     } else {
-      setErrorToast('Você está na primeira música da fila.');
+      safeCall('previousVideo');
     }
   };
 
@@ -818,25 +1028,31 @@ export const MusicWidget: React.FC = () => {
     }
   };
 
-  const selectPreset = (preset: (typeof PRESET_PLAYLISTS)[0]) => {
+  const handleSelectRecentActivity = (activity: RecentActivityItem) => {
     setErrorToast(null);
-    const presetItem: MusicQueueItem = {
-      id: `${preset.id}_preset`,
-      videoId: preset.id,
-      title: preset.title,
-    };
-
-    setQueue([presetItem]);
-    setCurrentIndex(0);
-    setCurrentItem({
-      type: 'video',
-      id: preset.id,
-      title: preset.title,
-    });
-
-    safeCall('loadVideoById', preset.id);
-    setIsPlaying(true);
-    setActiveTab('player');
+    if (activity.videoId) {
+      setIsDirectEmbedMode(false);
+      setCurrentItem({
+        type: 'video',
+        id: activity.videoId,
+        title: activity.title,
+      });
+      setQueue([
+        {
+          id: `${activity.videoId}_recent`,
+          videoId: activity.videoId,
+          title: activity.title,
+          channel: activity.channelTitle || 'YouTube Music',
+          thumbnail: activity.thumbnail,
+        },
+      ]);
+      safeCall('loadVideoById', activity.videoId);
+      setIsPlaying(true);
+      setSuccessToast(`Reproduzindo faixa recente: ${activity.title}`);
+      setActiveTab('player');
+    } else if (activity.playlistId) {
+      handleLoadPlaylistByLink(activity.playlistId, true);
+    }
   };
 
   return (
@@ -851,14 +1067,28 @@ export const MusicWidget: React.FC = () => {
             onPointerDown={handlePointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
-            className="flex items-center gap-1.5 bg-slate-900/85 hover:bg-slate-800/90 text-white border border-slate-700/60 backdrop-blur-xl px-2.5 py-2 rounded-full shadow-2xl cursor-grab active:cursor-grabbing transition-all hover:scale-105"
+            className={`flex items-center gap-1.5 backdrop-blur-xl px-2.5 py-2 rounded-full shadow-2xl cursor-grab active:cursor-grabbing transition-all hover:scale-105 border ${
+              isSwat
+                ? 'bg-[#070b12]/95 border-cyan-500/40 text-cyan-200 shadow-cyan-500/20'
+                : isPink
+                ? 'bg-[#120718]/95 border-rose-500/40 text-rose-200 shadow-rose-500/20'
+                : 'bg-slate-900/85 hover:bg-slate-800/90 text-white border-slate-700/60'
+            }`}
           >
-            <GripVertical className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <GripVertical className="w-3.5 h-3.5 opacity-60 shrink-0" />
             <button
               onClick={() => setIsOpen(true)}
               className={`flex items-center gap-2 px-3 py-1 rounded-full font-bold text-xs transition-all cursor-pointer ${
                 isPlaying
-                  ? 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-lg shadow-indigo-600/30 animate-pulse'
+                  ? isSwat
+                    ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/30 font-extrabold'
+                    : isPink
+                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 font-extrabold'
+                    : 'bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-lg shadow-indigo-600/30 animate-pulse'
+                  : isSwat
+                  ? 'text-cyan-200 hover:text-cyan-100'
+                  : isPink
+                  ? 'text-rose-200 hover:text-rose-100'
                   : 'text-slate-200 hover:text-white'
               }`}
               title="Música & Foco de Estudo"
@@ -873,8 +1103,14 @@ export const MusicWidget: React.FC = () => {
 
         {/* Floating Modal Window with Glassmorphism */}
         <div
-          className={`w-[340px] sm:w-[400px] bg-slate-900/90 text-white border border-slate-700/60 rounded-3xl shadow-2xl backdrop-blur-2xl transition-all animate-in fade-in overflow-hidden ${
+          className={`w-[340px] sm:w-[400px] rounded-3xl shadow-2xl backdrop-blur-2xl transition-all animate-in fade-in overflow-hidden border ${
             isOpen ? 'block' : 'hidden'
+          } ${
+            isSwat
+              ? 'bg-[#070b12]/95 text-slate-200 border-cyan-500/30'
+              : isPink
+              ? 'bg-[#120718]/95 text-rose-100 border-rose-500/30'
+              : 'bg-slate-900/90 text-white border-slate-700/60'
           }`}
         >
           {/* Header */}
@@ -1036,17 +1272,69 @@ export const MusicWidget: React.FC = () => {
                   ref={containerRef}
                   className="w-full h-36 bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 relative group shadow-inner"
                 >
-                  {isDirectEmbedMode && directEmbedPlaylistId ? (
-                    <iframe
-                      className="w-full h-full rounded-2xl border-0"
-                      src={`https://www.youtube.com/embed/videoseries?list=${directEmbedPlaylistId}&autoplay=1`}
-                      title="YouTube Playlist Embed"
-                      allow="autoplay; encrypted-media; picture-in-picture"
-                      allowFullScreen
-                    />
-                  ) : (
-                    <YTContainer />
-                  )}
+                  <YTContainer />
+                </div>
+
+                {/* Currently Playing Card with Animated Equalizer */}
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-950/80 border border-slate-800 rounded-2xl">
+                  <div className="flex items-center gap-2.5 overflow-hidden">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-950/80 border border-indigo-500/40 flex items-center justify-center shrink-0">
+                      {isPlaying ? (
+                        <div className="flex items-end gap-0.5 h-4">
+                          <span className="w-1 bg-indigo-400 animate-[bounce_0.8s_infinite] h-2 rounded-full" />
+                          <span className="w-1 bg-cyan-400 animate-[bounce_1.1s_infinite] h-4 rounded-full" />
+                          <span className="w-1 bg-emerald-400 animate-[bounce_0.7s_infinite] h-3 rounded-full" />
+                        </div>
+                      ) : (
+                        <Music className="w-4 h-4 text-indigo-400" />
+                      )}
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className="text-xs font-bold text-white truncate">
+                        {queue[currentIndex]?.title || currentItem.title || 'Áudio Educacional'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 truncate">
+                        {queue[currentIndex]?.channel || 'YouTube Music'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-[10px] font-mono text-cyan-400 shrink-0 font-semibold px-2 py-0.5 bg-cyan-950/40 border border-cyan-800/40 rounded-lg">
+                    {isPlaying ? 'Tocando' : 'Pausado'}
+                  </div>
+                </div>
+
+                {/* Timeline / Progress Seek Bar */}
+                <div className="space-y-1 bg-slate-950/60 p-2.5 rounded-2xl border border-slate-800/80">
+                  <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 px-0.5">
+                    <span className="text-indigo-400 font-semibold">{formatTime(isSeeking ? seekValue : currentTime)}</span>
+                    <span className="text-slate-500">{formatTime(duration)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={duration > 0 ? duration : 100}
+                    value={isSeeking ? seekValue : (currentTime || 0)}
+                    onMouseDown={() => {
+                      setIsSeeking(true);
+                      setSeekValue(currentTime);
+                    }}
+                    onTouchStart={() => {
+                      setIsSeeking(true);
+                      setSeekValue(currentTime);
+                    }}
+                    onChange={(e) => {
+                      setSeekValue(Number(e.target.value));
+                    }}
+                    onMouseUp={(e) => {
+                      setIsSeeking(false);
+                      handleSeek(Number((e.target as HTMLInputElement).value));
+                    }}
+                    onTouchEnd={(e) => {
+                      setIsSeeking(false);
+                      handleSeek(Number((e.target as HTMLInputElement).value));
+                    }}
+                    className="w-full accent-indigo-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer transition-all"
+                  />
                 </div>
 
                 {/* Player Controls Bar */}
@@ -1104,30 +1392,198 @@ export const MusicWidget: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Presets List */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                    Canais Recomendados para Foco
-                  </label>
-                  <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto pr-1 custom-scrollbar">
-                    {PRESET_PLAYLISTS.map((preset) => (
-                      <button
-                        key={preset.id}
-                        onClick={() => selectPreset(preset)}
-                        className={`w-full text-left p-2 rounded-xl border text-xs transition-all flex items-center justify-between cursor-pointer ${
-                          currentItem.id === preset.id
-                            ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300 font-bold'
-                            : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-300'
-                        }`}
-                      >
-                        <div className="truncate">
-                          <p className="font-semibold truncate">{preset.title}</p>
-                          <p className="text-[10px] text-slate-500 truncate">{preset.desc}</p>
-                        </div>
-                        <Radio className="w-3.5 h-3.5 shrink-0 opacity-60 ml-2 text-cyan-400" />
-                      </button>
-                    ))}
+                {/* Listing the Tracks of the Playlist (Faixas da Playlist) */}
+                <div className="bg-slate-950/70 border border-slate-800 rounded-2xl p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setIsPlaylistTracksExpanded(!isPlaylistTracksExpanded)}
+                      className="flex items-center gap-2 text-xs font-bold text-white hover:text-indigo-400 transition-colors cursor-pointer"
+                    >
+                      <ListMusic className="w-4 h-4 text-indigo-400" />
+                      <span>Faixas da Playlist ({queue.length})</span>
+                      {isPlaylistTracksExpanded ? (
+                        <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                      )}
+                    </button>
+
+                    {queue.length > 0 && (
+                      <span className="text-[10px] text-slate-400 font-mono">
+                        Faixa {currentIndex + 1} de {queue.length}
+                      </span>
+                    )}
                   </div>
+
+                  {isPlaylistTracksExpanded && (
+                    <div className="space-y-2 animate-in fade-in duration-200">
+                      {queue.length > 3 && (
+                        <div className="relative">
+                          <Search className="w-3 h-3 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="Filtrar faixas da playlist..."
+                            value={trackSearchFilter}
+                            onChange={(e) => setTrackSearchFilter(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-[11px] text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                          />
+                        </div>
+                      )}
+
+                      {/* Scrollable Tracks List */}
+                      <div className="max-h-52 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
+                        {queue
+                          .filter((t) =>
+                            !trackSearchFilter.trim() ||
+                            t.title.toLowerCase().includes(trackSearchFilter.toLowerCase()) ||
+                            t.channel.toLowerCase().includes(trackSearchFilter.toLowerCase())
+                          )
+                          .map((track, idx) => {
+                            const isCurrent = currentIndex === idx;
+                            return (
+                              <div
+                                key={track.id || `${track.videoId}_${idx}`}
+                                onClick={() => playQueueIndex(idx)}
+                                className={`flex items-center justify-between p-2 rounded-xl border transition-all cursor-pointer text-xs group ${
+                                  isCurrent
+                                    ? 'bg-indigo-950/70 border-indigo-500 text-white shadow-sm'
+                                    : 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-800/80 hover:border-slate-700 text-slate-300'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 overflow-hidden">
+                                  <span
+                                    className={`text-[10px] font-mono w-4 text-center shrink-0 ${
+                                      isCurrent ? 'text-indigo-400 font-bold' : 'text-slate-500'
+                                    }`}
+                                  >
+                                    {idx + 1}
+                                  </span>
+                                  {track.thumbnail ? (
+                                    <img
+                                      src={track.thumbnail}
+                                      alt=""
+                                      className="w-8 h-8 rounded-lg object-cover shrink-0 border border-slate-800"
+                                    />
+                                  ) : (
+                                    <div className="w-8 h-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                                      <Music className="w-3.5 h-3.5 text-slate-400" />
+                                    </div>
+                                  )}
+                                  <div className="overflow-hidden">
+                                    <p
+                                      className={`truncate font-medium text-[11px] ${
+                                        isCurrent ? 'text-indigo-200 font-bold' : 'group-hover:text-white'
+                                      }`}
+                                    >
+                                      {track.title}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 truncate">{track.channel}</p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                  {isCurrent && isPlaying ? (
+                                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] font-semibold">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                                      Tocando
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        playQueueIndex(idx);
+                                      }}
+                                      className="p-1 rounded-lg text-slate-400 group-hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
+                                      title="Tocar esta faixa"
+                                    >
+                                      <Play className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* User Library Playlists in Player Tab */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      {userPlaylists.length > 0 ? `Sua Biblioteca (${userPlaylists.length})` : 'Playlists da sua Biblioteca'}
+                    </label>
+                    {isConnected && (
+                      <button
+                        onClick={() => fetchUserPlaylists()}
+                        disabled={loadingPlaylists}
+                        className="text-[10px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                        title="Atualizar Biblioteca"
+                      >
+                        <RefreshCw className={`w-2.5 h-2.5 ${loadingPlaylists ? 'animate-spin' : ''}`} />
+                        <span>Atualizar</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {isConnected && userPlaylists.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-1.5 max-h-36 overflow-y-auto pr-1 custom-scrollbar">
+                      {userPlaylists.map((pl) => (
+                        <button
+                          key={pl.id}
+                          onClick={() => handleSelectUserPlaylist(pl)}
+                          className={`w-full text-left p-2 rounded-xl border text-xs transition-all flex items-center justify-between cursor-pointer ${
+                            currentItem.id === pl.id || directEmbedPlaylistId === pl.id
+                              ? 'bg-indigo-600/20 border-indigo-500/50 text-indigo-300 font-bold'
+                              : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 truncate min-w-0">
+                            {pl.isLikedList || pl.id === 'LM' ? (
+                              <div className="w-6 h-6 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center shrink-0 border border-rose-500/30">
+                                <Heart className="w-3.5 h-3.5 fill-rose-500" />
+                              </div>
+                            ) : pl.thumbnail ? (
+                              <img src={pl.thumbnail} alt={pl.title} className="w-6 h-6 rounded-lg object-cover shrink-0 border border-slate-800" />
+                            ) : (
+                              <div className="w-6 h-6 rounded-lg bg-indigo-900/40 border border-indigo-700/40 flex items-center justify-center text-indigo-400 shrink-0">
+                                <ListMusic className="w-3.5 h-3.5" />
+                              </div>
+                            )}
+                            <div className="truncate min-w-0">
+                              <p className="font-semibold truncate text-[11px]">{pl.title}</p>
+                              <p className="text-[9px] text-slate-500 truncate">
+                                {pl.id === 'LM' ? 'Músicas Curtidas' : `${pl.itemCount || 0} vídeos`}
+                              </p>
+                            </div>
+                          </div>
+                          <Play className="w-3.5 h-3.5 shrink-0 opacity-70 ml-2 text-indigo-400 fill-indigo-400" />
+                        </button>
+                      ))}
+                    </div>
+                  ) : isConnected ? (
+                    <div className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl text-center space-y-1">
+                      <p className="text-[11px] text-slate-400">Nenhuma playlist encontrada na sua biblioteca do YouTube Music.</p>
+                      <button
+                        onClick={() => setActiveTab('playlists')}
+                        className="text-[10px] text-indigo-400 hover:underline font-semibold cursor-pointer"
+                      >
+                        Acessar aba de Playlists & Recentes
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="p-3 bg-slate-950/40 border border-slate-800 rounded-xl text-center space-y-1.5">
+                      <p className="text-[11px] text-slate-400">Conecte sua conta para carregar suas músicas curtidas e playlists reais.</p>
+                      <button
+                        onClick={() => setActiveTab('playlists')}
+                        className="px-3 py-1 bg-indigo-600/90 hover:bg-indigo-600 text-white rounded-lg text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
+                      >
+                        <LogIn className="w-3 h-3" />
+                        <span>Conectar YouTube Music</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Paste Link */}
@@ -1305,11 +1761,12 @@ export const MusicWidget: React.FC = () => {
                     <FolderHeart className="w-4 h-4 text-cyan-400" />
                     <span>Playlists & YouTube Music</span>
                   </span>
-                  {!playlistAuthError && (
+                  {isConnected && (
                     <button
                       onClick={() => fetchUserPlaylists()}
                       disabled={loadingPlaylists}
-                      className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer"
+                      className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Sincronizar playlists do seu canal"
                     >
                       <RefreshCw className={`w-3 h-3 ${loadingPlaylists ? 'animate-spin' : ''}`} />
                       <span>Atualizar</span>
@@ -1317,34 +1774,65 @@ export const MusicWidget: React.FC = () => {
                   )}
                 </div>
 
-                {/* Google / YouTube Music Account Status Banner */}
-                {googleMusic.isAuthenticated ? (
-                  <div className="bg-indigo-950/40 border border-indigo-500/40 p-2.5 rounded-2xl flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold shrink-0">
-                        {googleMusic.userEmail ? googleMusic.userEmail[0].toUpperCase() : 'G'}
+                {/* Unified YouTube Music Account Status */}
+                {isConnected ? (
+                  <div className="bg-indigo-950/40 border border-indigo-500/40 p-3 rounded-2xl flex items-center justify-between gap-2 shadow-sm">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm">
+                        {connectedUserEmail ? connectedUserEmail[0].toUpperCase() : 'Y'}
                       </div>
                       <div className="truncate text-xs">
-                        <p className="font-semibold text-slate-200 truncate">{googleMusic.userEmail || 'Conta Google'}</p>
-                        <p className="text-[10px] text-emerald-400 font-mono">Conectado ao YouTube</p>
+                        <p className="font-semibold text-slate-200 truncate">{connectedUserEmail || 'Conta Conectada'}</p>
+                        <p className="text-[10px] text-emerald-400 font-medium flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                          YouTube Music Conectado
+                        </p>
                       </div>
                     </div>
-                    <button
-                      onClick={() => googleMusic.logoutGoogleMusic()}
-                      className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-2 py-1 rounded-lg transition-colors cursor-pointer"
-                    >
-                      Desconectar
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => fetchUserPlaylists()}
+                        disabled={loadingPlaylists}
+                        className="text-[10px] bg-slate-800/80 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                        title="Buscar playlists do seu canal"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingPlaylists ? 'animate-spin' : ''}`} />
+                        <span className="hidden sm:inline">Sincronizar</span>
+                      </button>
+                      <button
+                        onClick={handleDisconnectYouTube}
+                        className="text-[10px] bg-red-950/40 hover:bg-red-900/50 border border-red-800/40 text-red-300 hover:text-red-200 px-2 py-1 rounded-lg transition-colors cursor-pointer"
+                        title="Desconectar do YouTube"
+                      >
+                        Sair
+                      </button>
+                    </div>
                   </div>
                 ) : (
-                  <div className="bg-slate-950/60 border border-slate-800 p-2.5 rounded-2xl flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-slate-400">Login YouTube Music:</span>
+                  /* Single Clean Login Card */
+                  <div className="bg-slate-950/80 border border-slate-800/90 p-4 rounded-2xl text-center space-y-3">
+                    <div className="w-12 h-12 mx-auto rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                      <FolderHeart className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-white mb-1">
+                        Sincronizar Playlists do YouTube Music
+                      </h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed max-w-xs mx-auto">
+                        Conecte sua conta do Google para puxar automaticamente suas playlists existentes e recentes para o seu momento de foco.
+                      </p>
+                    </div>
                     <button
-                      onClick={() => googleMusic.loginGoogleMusic()}
-                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      onClick={handleConnectYouTube}
+                      disabled={loadingPlaylists}
+                      className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer"
                     >
-                      <LogIn className="w-3 h-3" />
-                      <span>Login Google</span>
+                      {loadingPlaylists ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <LogIn className="w-4 h-4" />
+                      )}
+                      <span>Conectar Conta YouTube / Google</span>
                     </button>
                   </div>
                 )}
@@ -1407,88 +1895,240 @@ export const MusicWidget: React.FC = () => {
                   </div>
                 )}
 
-                {/* Connect Account or List Playlists */}
-                {playlistAuthError ? (
-                  <div className="bg-slate-950/80 border border-slate-800 p-4 rounded-2xl text-center space-y-3">
-                    <FolderHeart className="w-8 h-8 text-indigo-400 mx-auto opacity-80" />
-                    <div>
-                      <h4 className="text-xs font-bold text-white mb-1">
-                        Sincronizar Minhas Playlists do YouTube
-                      </h4>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Conecte sua conta do Google/YouTube para carregar suas listas personalizadas automaticamente.
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleConnectYouTube}
-                      disabled={loadingPlaylists}
-                      className="w-full bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-xs font-bold py-2.5 px-4 rounded-xl transition-all shadow-md shadow-indigo-600/30 flex items-center justify-center gap-2 cursor-pointer"
-                    >
-                      {loadingPlaylists ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <LogIn className="w-4 h-4" />
-                      )}
-                      <span>Conectar Conta YouTube</span>
-                    </button>
-                  </div>
-                ) : loadingPlaylists ? (
-                  <div className="text-center py-8 text-slate-400 space-y-2">
-                    <Loader2 className="w-7 h-7 animate-spin mx-auto text-indigo-400" />
-                    <p className="text-xs">Carregando suas playlists do YouTube...</p>
-                  </div>
-                ) : userPlaylists.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400 space-y-2 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
-                    <FolderHeart className="w-7 h-7 mx-auto opacity-40 text-indigo-400" />
-                    <p className="text-xs font-medium">Nenhuma playlist personalizada encontrada.</p>
-                    <p className="text-[10px] text-slate-500">
-                      Você pode colar o link de qualquer playlist acima ou usar as playlists recomendadas.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="max-h-56 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                    {userPlaylists.map((pl) => (
-                      <div
-                        key={pl.id}
-                        onClick={() => handleSelectUserPlaylist(pl)}
-                        className="bg-slate-950/60 hover:bg-indigo-950/30 border border-slate-800 hover:border-indigo-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 cursor-pointer group"
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          {pl.thumbnail ? (
-                            <img
-                              src={pl.thumbnail}
-                              alt={pl.title}
-                              className="w-12 h-9 object-cover rounded-lg bg-slate-900 shrink-0 border border-slate-800"
-                            />
-                          ) : (
-                            <div className="w-12 h-9 rounded-lg bg-indigo-900/40 border border-indigo-700/40 flex items-center justify-center text-indigo-400 shrink-0">
-                              <ListMusic className="w-4 h-4" />
-                            </div>
-                          )}
-
-                          <div className="min-w-0">
-                            <h4 className="text-xs font-bold text-white truncate group-hover:text-indigo-300 transition-colors">
-                              {pl.title}
-                            </h4>
-                            <p className="text-[10px] text-slate-400">
-                              {pl.itemCount} {pl.itemCount === 1 ? 'vídeo' : 'vídeos'}
-                            </p>
-                          </div>
-                        </div>
-
+                {/* Playlists & Recents Library (Pulled directly from YouTube Music) */}
+                {isConnected && (
+                  <div className="space-y-3">
+                    {/* Subtabs: Playlists vs Atividades Recentes + Direct link to music.youtube.com/library */}
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                      <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
                         <button
-                          disabled={loadingPlaylistId === pl.id}
-                          className="p-2 bg-indigo-600 group-hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all shrink-0 flex items-center gap-1 shadow-sm"
+                          onClick={() => setLibrarySubTab('playlists')}
+                          className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                            librarySubTab === 'playlists'
+                              ? 'bg-indigo-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
                         >
-                          {loadingPlaylistId === pl.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5 fill-white" />
-                          )}
-                          <span className="text-[10px] hidden sm:inline">Tocar</span>
+                          <FolderHeart className="w-3.5 h-3.5" />
+                          <span>Playlists ({userPlaylists.length})</span>
+                        </button>
+                        <button
+                          onClick={() => setLibrarySubTab('recents')}
+                          className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                            librarySubTab === 'recents'
+                              ? 'bg-cyan-600 text-white shadow-sm'
+                              : 'text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <History className="w-3.5 h-3.5" />
+                          <span>Recentes ({recentActivities.length})</span>
                         </button>
                       </div>
-                    ))}
+
+                      <a
+                        href="https://music.youtube.com/library"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1 shrink-0 p-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 hover:border-cyan-500/40"
+                        title="Abrir Biblioteca Completa no YouTube Music"
+                      >
+                        <span className="hidden sm:inline">music.youtube.com/library</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+
+                    {loadingPlaylists ? (
+                      <div className="text-center py-8 text-slate-400 space-y-2">
+                        <Loader2 className="w-7 h-7 animate-spin mx-auto text-indigo-400" />
+                        <p className="text-xs">Sincronizando com sua Biblioteca do YouTube Music...</p>
+                      </div>
+                    ) : librarySubTab === 'playlists' ? (
+                      /* Playlists Tab */
+                      userPlaylists.length === 0 ? (
+                        <div className="text-center py-6 text-slate-400 space-y-2.5 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
+                          <FolderHeart className="w-8 h-8 mx-auto opacity-40 text-indigo-400" />
+                          <p className="text-xs font-semibold text-slate-200">Nenhuma playlist encontrada na sua biblioteca</p>
+                          <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                            Nenhuma playlist criada ou salva foi localizada no seu perfil do YouTube Music.
+                          </p>
+                          <a
+                            href="https://music.youtube.com/library"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-indigo-300 border border-slate-700/80 rounded-xl text-xs font-semibold transition-all shadow-sm cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Abrir Biblioteca no YouTube Music</span>
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                            <span>Playlists da sua Biblioteca ({userPlaylists.length})</span>
+                            <span className="text-[10px] text-slate-500 font-mono">list=ID</span>
+                          </div>
+                          <div className="max-h-64 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                            {userPlaylists.map((pl) => (
+                              <div
+                                key={pl.id}
+                                className="bg-slate-950/60 hover:bg-indigo-950/30 border border-slate-800 hover:border-indigo-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                              >
+                                <div
+                                  onClick={() => handleSelectUserPlaylist(pl)}
+                                  className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
+                                >
+                                  {pl.isLikedList || pl.id === 'LM' ? (
+                                    <div className="w-12 h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0 shadow-sm">
+                                      <Heart className="w-5 h-5 fill-rose-500" />
+                                    </div>
+                                  ) : pl.thumbnail ? (
+                                    <img
+                                      src={pl.thumbnail}
+                                      alt={pl.title}
+                                      className="w-12 h-10 object-cover rounded-xl bg-slate-900 shrink-0 border border-slate-800"
+                                    />
+                                  ) : (
+                                    <div className="w-12 h-10 rounded-xl bg-indigo-900/40 border border-indigo-700/40 flex items-center justify-center text-indigo-400 shrink-0">
+                                      <ListMusic className="w-4 h-4" />
+                                    </div>
+                                  )}
+
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <h4 className="text-xs font-bold text-white truncate group-hover:text-indigo-300 transition-colors">
+                                        {pl.title}
+                                      </h4>
+                                      {pl.id === 'LM' && (
+                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-950/70 border border-rose-700/40 text-rose-300 font-medium shrink-0">
+                                          Curtidas
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                      <span>{pl.id === 'LM' ? 'Músicas Curtidas' : `${pl.itemCount || 0} vídeos`}</span>
+                                      <span className="text-slate-600">•</span>
+                                      <span className="font-mono text-slate-500 text-[9px]">list={pl.id}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <a
+                                    href={pl.link || `https://music.youtube.com/playlist?list=${pl.id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 rounded-xl transition-all border border-slate-800"
+                                    title="Abrir no YouTube Music (music.youtube.com)"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </a>
+                                  <button
+                                    onClick={() => handleSelectUserPlaylist(pl)}
+                                    disabled={loadingPlaylistId === pl.id}
+                                    className="p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                    title="Tocar Playlist"
+                                  >
+                                    {loadingPlaylistId === pl.id ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <Play className="w-3.5 h-3.5 fill-white" />
+                                    )}
+                                    <span className="text-[10px] hidden sm:inline">Tocar</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    ) : (
+                      /* Atividades Recentes Tab */
+                      recentActivities.length === 0 ? (
+                        <div className="text-center py-6 text-slate-400 space-y-2.5 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
+                          <History className="w-8 h-8 mx-auto opacity-40 text-cyan-400" />
+                          <p className="text-xs font-semibold text-slate-200">Sem atividades recentes</p>
+                          <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                            Nenhuma atividade recente registrada recentemente na sua conta do YouTube Music.
+                          </p>
+                          <a
+                            href="https://music.youtube.com/library"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700/80 rounded-xl text-xs font-semibold transition-all shadow-sm cursor-pointer"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Acessar YouTube Music</span>
+                          </a>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                            <span>Atividades Recentes ({recentActivities.length})</span>
+                            <span className="text-[10px] text-cyan-400">Direto da sua conta</span>
+                          </div>
+                          <div className="max-h-64 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                            {recentActivities.map((act) => (
+                              <div
+                                key={act.id}
+                                className="bg-slate-950/60 hover:bg-cyan-950/30 border border-slate-800 hover:border-cyan-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                              >
+                                <div
+                                  onClick={() => handleSelectRecentActivity(act)}
+                                  className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
+                                >
+                                  {act.thumbnail ? (
+                                    <img
+                                      src={act.thumbnail}
+                                      alt={act.title}
+                                      className="w-12 h-10 object-cover rounded-xl bg-slate-900 shrink-0 border border-slate-800"
+                                    />
+                                  ) : (
+                                    <div className="w-12 h-10 rounded-xl bg-cyan-900/40 border border-cyan-700/40 flex items-center justify-center text-cyan-400 shrink-0">
+                                      <Music2 className="w-4 h-4" />
+                                    </div>
+                                  )}
+
+                                  <div className="min-w-0">
+                                    <h4 className="text-xs font-bold text-white truncate group-hover:text-cyan-300 transition-colors">
+                                      {act.title}
+                                    </h4>
+                                    <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                      <span className="truncate">{act.channelTitle || 'YouTube Music'}</span>
+                                      {act.type === 'like' && (
+                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-950/60 border border-rose-700/40 text-rose-300 font-medium shrink-0 flex items-center gap-0.5">
+                                          <Heart className="w-2.5 h-2.5 fill-rose-500" />
+                                          <span>Curtida</span>
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <a
+                                    href={act.link || (act.videoId ? `https://music.youtube.com/watch?v=${act.videoId}` : 'https://music.youtube.com')}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 rounded-xl transition-all border border-slate-800"
+                                    title="Abrir no YouTube Music"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                  </a>
+                                  <button
+                                    onClick={() => handleSelectRecentActivity(act)}
+                                    className="p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                    title="Tocar Faixa Recente"
+                                  >
+                                    <Play className="w-3.5 h-3.5 fill-white" />
+                                    <span className="text-[10px] hidden sm:inline">Tocar</span>
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    )}
                   </div>
                 )}
               </div>

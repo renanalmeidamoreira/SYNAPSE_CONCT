@@ -7,7 +7,7 @@ export interface GeminiRetryOptions {
   maxRetries?: number;
   initialDelayMs?: number;
   backoffFactor?: number;
-  model?: 'gemini-3.5-flash' | 'gemini-3.1-pro-preview' | 'gemini-3.1-flash-lite' | 'gemini-3.7-flash' | string;
+  model?: 'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-3.1-pro-preview' | string;
   useSearchGrounding?: boolean;
   useMapsGrounding?: boolean;
 }
@@ -97,14 +97,26 @@ Aqui está uma estrutura recomendada com ciclo intercalado para potencializar su
    - **Ação Popular:** Qualquer cidadão contra atos lesivos ao patrimônio público ou moralidade.`;
   }
 
-  return `📚 **Orientação Pedagógica SYNAPSE:**
+  if (p.includes('olá') || p.includes('ola') || p.includes('oi') || p.includes('tudo bem') || p.includes('boa tarde') || p.includes('bom dia') || p.includes('boa noite')) {
+    return `Olá! Que bom falar com você! 👋 Estou online e pronto para te acompanhar nos seus estudos. 
 
-Para maximizar sua preparação neste tópico:
-1. **Compreensão Teórica:** Faça leitura atenta da letra da lei (a letra da lei responde por mais de 70% das questões de provas objetivas).
-2. **Fixação Ativa:** Resolva questões da sua banca examinadora e registre seus erros para revisão periódica.
-3. **Revisão Espaçada:** Revise os pontos principais em ciclos de 24h, 7 dias e 30 dias.
+Como posso te ajudar hoje? Posso:
+- 🎯 Montar um plano de estudos focado na sua meta
+- 💡 Explicar qualquer matéria de concurso ou vestibular com exemplos simples
+- 📝 Elaborar questões práticas ou simular bancas
+- ✍️ Dar dicas certeiras de redação e discursivas
 
-Em que ponto específico posso detalhar mais a explicação para você?`;
+Me conte: o que você está estudando no momento?`;
+  }
+
+  return `Com certeza! Vamos destrinchar isso juntos de forma bem prática:
+
+Para fixar este tema com máxima eficiência:
+1. **Conceito Chave:** Entenda o "porquê" da regra ou do conteúdo antes de tentar decorar.
+2. **Exemplo Prático:** Relacione com um caso real ou mnemônico simples.
+3. **Aplicação em Questões:** Pratique ao menos 5 a 10 questões da banca sobre o assunto para ver as pegadinhas mais comuns.
+
+Se quiser, me mande uma dúvida específica ou um exercício desse assunto que eu resolvo com você passo a passo!`;
 }
 
 export async function callGeminiAPI(
@@ -133,7 +145,7 @@ export async function callGeminiAPI(
           systemInstruction,
           responseMimeType,
           responseSchema,
-          model: options.model || 'gemini-3.5-flash',
+          model: options.model || 'gemini-3.1-flash-lite',
           useSearchGrounding: options.useSearchGrounding,
           useMapsGrounding: options.useMapsGrounding,
         }),
@@ -196,6 +208,104 @@ export async function callGeminiAPI(
   return getPedagogicalFallbackResponse(prompt, systemInstruction);
 }
 
+export const DEFAULT_NATURAL_SYSTEM_PROMPT =
+  'Você é a Inteligência Artificial do SYNAPSE, um tutor e companheiro de estudos caloroso, amigável, altamente capacitado e natural. ' +
+  'Converse com o estudante de forma natural, acolhedora, inteligente e motivadora, exatamente como as melhores IAs (ChatGPT, Gemini). ' +
+  'Se o estudante cumprimentar ("oi", "olá", "boa tarde"), responda com simpatia e disposição. ' +
+  'Explique conteúdos difíceis com didática impecável, exemplos do cotidiano, mnemônicos e analogias fáceis de memorizar. ' +
+  'Organize respostas longas com formatação Markdown (negrito, tópicos, listas limpas), sempre priorizando clareza e ritmo de leitura.';
+
+/**
+ * Real-time Streaming Client for Natural, Online Conversational AI (SSE)
+ */
+export async function callGeminiStream(
+  messages: ChatMessageItem[],
+  onChunk: (accumulatedText: string, chunk: string) => void,
+  systemInstruction?: string,
+  options: GeminiRetryOptions = {}
+): Promise<string> {
+  const formattedHistory = messages.map((m) => ({
+    role: m.sender === 'user' ? 'user' : 'model',
+    text: m.text,
+  }));
+
+  const activeSystemPrompt = systemInstruction || DEFAULT_NATURAL_SYSTEM_PROMPT;
+
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 40000);
+
+    const res = await fetch('/api/gemini/stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        history: formattedHistory,
+        systemInstruction: activeSystemPrompt,
+        model: options.model || 'gemini-3.1-flash-lite',
+        useSearchGrounding: options.useSearchGrounding,
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok || !res.body) {
+      throw new Error(`Falha na resposta do servidor: status ${res.status}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let accumulated = '';
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          const jsonStr = trimmed.slice(6);
+          try {
+            const parsed = JSON.parse(jsonStr);
+            if (parsed.done) {
+              break;
+            }
+            if (parsed.text) {
+              accumulated += parsed.text;
+              onChunk(accumulated, parsed.text);
+            } else if (parsed.error && typeof parsed.error === 'string') {
+              console.warn('[Gemini Stream Notice]:', parsed.error);
+            }
+          } catch (e) {
+            // chunk parcial
+          }
+        }
+      }
+    }
+
+    if (accumulated.trim().length > 0) {
+      return accumulated;
+    }
+
+    // Fallback se stream vier vazio
+    const fallbackRes = await callGeminiChat(messages, activeSystemPrompt, options);
+    onChunk(fallbackRes.text, fallbackRes.text);
+    return fallbackRes.text;
+  } catch (streamErr) {
+    console.warn('[Gemini Stream Fallback]:', streamErr);
+    const fallbackRes = await callGeminiChat(messages, activeSystemPrompt, options);
+    onChunk(fallbackRes.text, fallbackRes.text);
+    return fallbackRes.text;
+  }
+}
+
 /**
  * Multi-turn chat client for interactive AI conversations with role and model selection
  */
@@ -210,6 +320,8 @@ export async function callGeminiChat(
       text: m.text,
     }));
 
+    const activeSystemPrompt = systemInstruction || DEFAULT_NATURAL_SYSTEM_PROMPT;
+
     const res = await fetch('/api/gemini', {
       method: 'POST',
       headers: {
@@ -217,10 +329,8 @@ export async function callGeminiChat(
       },
       body: JSON.stringify({
         history: formattedHistory,
-        systemInstruction:
-          systemInstruction ||
-          'Você é o tutor especialista em concursos e vestibulares da plataforma SYNAPSE. Forneça respostas didáticas, organizadas com tópicos, referências a leis ou artigos quando cabível, e dicas práticas para fixação.',
-        model: options.model || 'gemini-3.5-flash',
+        systemInstruction: activeSystemPrompt,
+        model: options.model || 'gemini-3.8-flash',
         useSearchGrounding: options.useSearchGrounding,
         useMapsGrounding: options.useMapsGrounding,
       }),
@@ -237,7 +347,7 @@ export async function callGeminiChat(
     // If quota or error, provide pedagogical answer for the last user message
     const lastUserMsg = [...messages].reverse().find((m) => m.sender === 'user');
     return {
-      text: getPedagogicalFallbackResponse(lastUserMsg?.text || '', systemInstruction),
+      text: getPedagogicalFallbackResponse(lastUserMsg?.text || '', activeSystemPrompt),
     };
   } catch (err) {
     console.warn('[Gemini Chat] Erro na requisição interativa:', err);

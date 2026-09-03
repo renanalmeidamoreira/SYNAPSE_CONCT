@@ -59,8 +59,8 @@ export function extractPlaylistId(rawInput: string): string | null {
   if (!rawInput || typeof rawInput !== 'string') return null;
   const trimmed = rawInput.trim();
 
-  // Se já for um ID limpo de playlist (ex: PL..., OLAK5uy_..., RD...)
-  if (/^[A-Za-z0-9_-]{10,}$/.test(trimmed) && !trimmed.includes('http')) {
+  // Se já for um ID limpo de playlist (ex: LM, LL, PL..., OLAK5uy_..., RD...)
+  if (/^[A-Za-z0-9_-]{2,}$/.test(trimmed) && !trimmed.includes('http') && !trimmed.includes('/')) {
     return trimmed;
   }
 
@@ -125,8 +125,10 @@ export async function handleYouTubeProxy(req: Request, res: Response) {
     const apiKey = process.env.YOUTUBE_API_KEY || process.env.GEMINI_API_KEY;
 
     const headers: Record<string, string> = { Accept: 'application/json' };
+    // Para 'LM' (Liked Music do YouTube Music), a API padrão do YouTube costuma associar à lista 'LL' (Liked List)
+    const effectivePlaylistId = playlistId === 'LM' ? 'LL' : playlistId;
     let ytApiUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=${encodeURIComponent(
-      playlistId
+      effectivePlaylistId
     )}`;
 
     if (authHeader && authHeader.startsWith('Bearer ') && !authHeader.includes('undefined') && !authHeader.includes('null')) {
@@ -169,48 +171,26 @@ export async function handleYouTubeProxy(req: Request, res: Response) {
       });
     }
 
-    // Se a API retornar erro (ex: quota, invalid key, 403, etc), ativa o fallback gracioso
-    const errorMessage =
-      ytData?.error?.message ||
-      'Não foi possível carregar a lista de faixas individualmente. Você pode reproduzir via Player Direto ou usar as faixas de foco padrão.';
-
+    // Se a API não retornou faixas individuais (ex: playlist privada do YouTube Music como LM que só toca no player embutido)
     return res.status(200).json({
-      success: false,
-      fallback: true,
-      error: errorMessage,
-      playlistId,
+      success: true,
+      useDirectEmbed: true,
       directEmbedUrl,
-      items: DEFAULT_STUDY_PLAYLIST.map((item) => ({
-        id: item.url,
-        snippet: {
-          title: item.title,
-          channelTitle: item.channel,
-          resourceId: { videoId: item.url },
-          thumbnails: { default: { url: item.thumbnail } },
-        },
-      })),
-      defaultPlaylist: DEFAULT_STUDY_PLAYLIST,
+      playlistId,
+      items: [],
+      message: 'Playlist pronta para reprodução direta no player.',
     });
   } catch (err: unknown) {
     const errorObj = err as Error;
     console.error('Erro no YouTube Proxy:', errorObj.message);
 
     return res.status(200).json({
-      success: false,
-      fallback: true,
-      error: 'Sistema em manutenção na busca de faixas. Usando faixas de foco padrão e Player Direto.',
-      playlistId,
+      success: true,
+      useDirectEmbed: true,
       directEmbedUrl,
-      items: DEFAULT_STUDY_PLAYLIST.map((item) => ({
-        id: item.url,
-        snippet: {
-          title: item.title,
-          channelTitle: item.channel,
-          resourceId: { videoId: item.url },
-          thumbnails: { default: { url: item.thumbnail } },
-        },
-      })),
-      defaultPlaylist: DEFAULT_STUDY_PLAYLIST,
+      playlistId,
+      items: [],
+      message: 'Reproduzindo playlist diretamente.',
     });
   }
 }

@@ -224,9 +224,9 @@ export const ServiceLoginModal: React.FC<ServiceLoginModalProps> = ({
                     onChange={(e) => setSelectedModel(e.target.value)}
                     className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
                   >
-                    <option value="gemini-3.5-flash">Gemini 3.5 Flash (Geral / Rápido - Padrão)</option>
+                    <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Ultra Baixa Latência / Recomendado)</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (Geral Alta Performance)</option>
                     <option value="gemini-3.1-pro-preview">Gemini 3.1 Pro (Raciocínio Jurídico Profundo)</option>
-                    <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash-Lite (Ultra Baixa Latência)</option>
                   </select>
                 </div>
 

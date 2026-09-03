@@ -173,7 +173,11 @@ export const GoogleWorkspaceModal: React.FC<GoogleWorkspaceModalProps> = ({
   };
 
   const handleOpenNotebookLMSideBySide = () => {
-    window.open('https://notebooklm.google.com', '_blank', 'noopener,noreferrer');
+    window.dispatchEvent(
+      new CustomEvent('open-inapp-web', {
+        detail: { url: 'https://notebooklm.google.com', title: 'Google NotebookLM' },
+      })
+    );
   };
 
   return (

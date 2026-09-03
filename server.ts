@@ -51,17 +51,37 @@ async function startServer() {
       config?: any;
     }
   ): Promise<{ text: string; rawResponse?: any; groundingMetadata?: any }> {
-    const modelName = params.model || 'gemini-3.5-flash';
+    // Map outdated models to supported resilient models
+    let initialModel = params.model || 'gemini-3.1-flash-lite';
+    if (
+      initialModel === 'gemini-3.5-flash' ||
+      initialModel === 'gemini-3.6-flash' ||
+      initialModel === 'gemini-3.7-flash' ||
+      initialModel === 'gemini-2.0-flash' ||
+      initialModel === 'gemini-1.5-flash'
+    ) {
+      initialModel = 'gemini-3.1-flash-lite';
+    }
+
+    // Cascade of fallback models for resilience against 503 High Demand spikes
+    const modelCandidates = [
+      initialModel,
+      initialModel === 'gemini-3.1-flash-lite' ? 'gemini-flash-latest' : 'gemini-3.1-flash-lite',
+      'gemini-3.8-flash',
+    ].filter((m, idx, arr) => arr.indexOf(m) === idx);
+
     let attempts = 0;
-    const maxAttempts = 2; // 1 initial + 1 retry for transient network errors (never retry on 429)
+    const maxAttempts = 3;
+    let currentConfig = params.config ? { ...params.config } : undefined;
 
     while (attempts < maxAttempts) {
+      const currentModel = modelCandidates[Math.min(attempts, modelCandidates.length - 1)];
       attempts++;
       try {
         const response = await aiClient.models.generateContent({
-          model: modelName,
+          model: currentModel,
           contents: params.contents,
-          config: params.config,
+          config: currentConfig,
         });
 
         const groundingMeta = response.candidates?.[0]?.groundingMetadata;
@@ -74,7 +94,7 @@ async function startServer() {
         const errMessage = String(err?.message || err || '');
         const status = err?.status || err?.statusCode || err?.response?.status;
 
-        // Check if it's a 429 / RESOURCE_EXHAUSTED / Quota error
+        // Check if tools (e.g. googleSearch grounding) caused 429 quota exhaustion (limit 0 on free tier)
         const isQuotaError =
           status === 429 ||
           errMessage.includes('429') ||
@@ -83,6 +103,13 @@ async function startServer() {
           errMessage.includes('rateLimitExceeded') ||
           errMessage.includes('Too Many Requests');
 
+        if (isQuotaError && currentConfig?.tools && currentConfig.tools.length > 0) {
+          console.warn('[Gemini Resilience] Quota exceeded on external tools. Retrying without tools...');
+          delete currentConfig.tools;
+          // Retry immediately with the same model but without tools
+          continue;
+        }
+
         if (isQuotaError) {
           console.warn('[Gemini Resilience] 429 Quota Exceeded error caught (No retry):', errMessage);
           const quotaErr: any = new Error(
@@ -90,20 +117,36 @@ async function startServer() {
           );
           quotaErr.tipo = 'quota_excedida';
           quotaErr.isQuota = true;
-          throw quotaErr; // Never retry on 429
+          throw quotaErr;
         }
 
-        console.error(`[Gemini Resilience] Error on attempt ${attempts}/${maxAttempts}:`, errMessage);
+        const isHighDemandOrUnavailable =
+          status === 503 ||
+          status === 500 ||
+          errMessage.includes('503') ||
+          errMessage.includes('UNAVAILABLE') ||
+          errMessage.includes('high demand') ||
+          errMessage.includes('Spikes in demand') ||
+          errMessage.includes('overloaded');
 
-        // If transient error (not 429) and first attempt, retry once after 1s
+        if (isHighDemandOrUnavailable) {
+          console.warn(
+            `[Gemini Resilience] High demand / 503 on model ${currentModel} (attempt ${attempts}/${maxAttempts}). Will switch to fallback model...`
+          );
+        } else {
+          console.error(`[Gemini Resilience] Error on attempt ${attempts}/${maxAttempts} (${currentModel}):`, errMessage);
+        }
+
+        // If transient error (503 / network) and we have attempts left
         if (attempts < maxAttempts) {
-          console.log('[Gemini Resilience] Retrying transient error in 1000ms...');
-          await new Promise((res) => setTimeout(res, 1000));
+          const delayMs = isHighDemandOrUnavailable ? 400 : 1000;
+          console.log(`[Gemini Resilience] Retrying with fallback model in ${delayMs}ms...`);
+          await new Promise((res) => setTimeout(res, delayMs));
           continue;
         }
 
         const tempErr: any = new Error(
-          'Serviço de IA temporariamente indisponível. Tente novamente mais tarde.'
+          'Serviço de IA temporariamente indisponível. Tente novamente em instantes.'
         );
         tempErr.tipo = 'erro_temporario';
         tempErr.isQuota = false;
@@ -186,14 +229,14 @@ async function startServer() {
         config.tools = [{ googleMaps: {} }];
       }
 
-      // Selected model mapping (default gemini-3.5-flash)
-      let selectedModel = 'gemini-3.5-flash';
+      // Selected model mapping (default gemini-3.1-flash-lite)
+      let selectedModel = 'gemini-3.1-flash-lite';
       if (model === 'gemini-3.1-pro-preview' || model === 'pro') {
         selectedModel = 'gemini-3.1-pro-preview';
+      } else if (model === 'gemini-3.8-flash') {
+        selectedModel = 'gemini-3.8-flash';
       } else if (model === 'gemini-3.1-flash-lite' || model === 'lite') {
         selectedModel = 'gemini-3.1-flash-lite';
-      } else if (model === 'gemini-3.7-flash') {
-        selectedModel = 'gemini-3.7-flash';
       } else if (model) {
         selectedModel = model;
       }
@@ -224,10 +267,160 @@ async function startServer() {
     }
   });
 
+  // Gemini Real-time Streaming Endpoint (SSE) for conversational AI
+  app.post('/api/gemini/stream', async (req, res) => {
+    try {
+      const aiClient = getGeminiClient();
+      if (!aiClient) {
+        return res.status(500).json({
+          success: false,
+          error: 'Chave GEMINI_API_KEY não configurada no servidor.',
+        });
+      }
+
+      const {
+        prompt,
+        history,
+        messages,
+        systemInstruction,
+        model = 'gemini-3.8-flash',
+        useSearchGrounding,
+      } = req.body || {};
+
+      let contentsPayload: any;
+
+      if (Array.isArray(history) && history.length > 0) {
+        contentsPayload = history.map((msg: any) => ({
+          role: msg.role === 'ai' || msg.role === 'model' ? 'model' : 'user',
+          parts: [{ text: String(msg.text || msg.content || '') }],
+        }));
+
+        if (prompt && typeof prompt === 'string' && prompt.trim()) {
+          const lastMsg = history[history.length - 1];
+          if (!lastMsg || lastMsg.text !== prompt) {
+            contentsPayload.push({
+              role: 'user',
+              parts: [{ text: prompt.trim() }],
+            });
+          }
+        }
+      } else if (Array.isArray(messages) && messages.length > 0) {
+        contentsPayload = messages.map((msg: any) => ({
+          role: msg.role === 'ai' || msg.role === 'model' || msg.sender === 'ai' ? 'model' : 'user',
+          parts: [{ text: String(msg.text || msg.content || '') }],
+        }));
+      } else if (prompt && typeof prompt === 'string' && prompt.trim()) {
+        contentsPayload = prompt.trim();
+      } else {
+        return res.status(400).json({ success: false, error: 'Histórico ou prompt é obrigatório.' });
+      }
+
+      // Configure Server-Sent Events headers
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      if (typeof res.flushHeaders === 'function') {
+        res.flushHeaders();
+      }
+
+      const config: Record<string, any> = {};
+      if (systemInstruction) {
+        config.systemInstruction = systemInstruction;
+      }
+      if (useSearchGrounding) {
+        config.tools = [{ googleSearch: {} }];
+      }
+
+      let selectedModel = model === 'gemini-3.1-pro-preview' ? 'gemini-3.1-pro-preview' : (model || 'gemini-3.1-flash-lite');
+
+      // Candidate models cascade in case the primary experiences 503 High Demand
+      const candidateModels = [
+        selectedModel,
+        'gemini-3.1-flash-lite',
+        'gemini-flash-latest',
+        'gemini-3.8-flash',
+      ].filter((m, idx, arr) => arr.indexOf(m) === idx);
+
+      let streamedAny = false;
+      let lastStreamError: any = null;
+
+      for (const currentCandidate of candidateModels) {
+        try {
+          const stream = await aiClient.models.generateContentStream({
+            model: currentCandidate,
+            contents: contentsPayload,
+            config: Object.keys(config).length > 0 ? config : undefined,
+          });
+
+          for await (const chunk of stream) {
+            const chunkText = chunk.text || '';
+            if (chunkText) {
+              streamedAny = true;
+              res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+            }
+          }
+
+          if (streamedAny) {
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            res.end();
+            return;
+          }
+        } catch (streamErr: any) {
+          lastStreamError = streamErr;
+          console.warn(
+            `[Gemini Stream] Modelo ${currentCandidate} indisponível (503 ou erro temporário). Tentando próximo modelo da cascata...`,
+            streamErr?.message || streamErr
+          );
+          if (streamedAny) {
+            // Se já enviou parte dos dados, encerra o stream sem corromper a resposta
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            res.end();
+            return;
+          }
+        }
+      }
+
+      // Se nenhum streaming iniciou, tenta o gerador resiliente não-streaming
+      if (!streamedAny) {
+        try {
+          const fallbackRes = await callGeminiWithResilience(aiClient, {
+            model: 'gemini-3.1-flash-lite',
+            contents: contentsPayload,
+            config: Object.keys(config).length > 0 ? config : undefined,
+          });
+
+          if (fallbackRes && fallbackRes.text) {
+            res.write(`data: ${JSON.stringify({ text: fallbackRes.text })}\n\n`);
+            res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+            res.end();
+            return;
+          }
+        } catch (resilienceErr: any) {
+          console.warn('[Gemini Stream Resilience Fallback Error]:', resilienceErr?.message || resilienceErr);
+        }
+      }
+
+      // Se mesmo assim falhou temporariamente, envia resposta amigável do tutor pedagógico
+      const pedagogicalFallback =
+        'Olá! No momento os servidores da inteligência artificial estão experimentando uma oscilação momentânea de alta demanda. ' +
+        'Estou pronto para te acompanhar nos estudos! Por favor, repita sua dúvida ou me envie o tema que deseja estudar agora.';
+
+      res.write(`data: ${JSON.stringify({ text: pedagogicalFallback })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+      res.end();
+    } catch (err: any) {
+      console.error('[Gemini Stream Root Error]:', err);
+      if (!res.headersSent) {
+        return res.status(500).json({ success: false, error: err.message });
+      }
+      res.end();
+    }
+  });
+
   // Local AI & Llamafile proxy endpoint
   app.post('/api/ai/chat', handleAIChat);
 
-  // Audio Transcription Endpoint using gemini-3.5-flash
+  // Audio Transcription Endpoint using resilient Gemini call
   app.post('/api/gemini/transcribe-audio', async (req, res) => {
     try {
       const aiClient = getGeminiClient();
@@ -245,8 +438,8 @@ async function startServer() {
 
       const cleanBase64 = audioBase64.replace(/^data:[^;]+;base64,/, '');
 
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-3.5-flash',
+      const response = await callGeminiWithResilience(aiClient, {
+        model: 'gemini-3.1-flash-lite',
         contents: [
           {
             inlineData: {
@@ -558,7 +751,7 @@ Sua resposta DEVE SER ESTRITAMENTE UM OBJETO JSON com a seguinte estrutura váli
 `;
 
       const response = await callGeminiWithResilience(ai, {
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
           responseMimeType: 'application/json',
@@ -1079,8 +1272,8 @@ Analise os resultados mais recentes e confiáveis e retorne APENAS um array JSON
   }
 ]`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3.6-flash',
+      const response = await callGeminiWithResilience(ai, {
+        model: 'gemini-3.1-flash-lite',
         contents: prompt,
         config: {
           tools: [{ googleSearch: {} }],
@@ -1816,7 +2009,7 @@ Gere um resumo organizado com os seguintes tópicos (se disponíveis):
 Seja direto, claro e encorajador.`;
 
       const response = await callGeminiWithResilience(ai, {
-        model: 'gemini-3.6-flash',
+        model: 'gemini-3.1-flash-lite',
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
       });
 
@@ -1998,8 +2191,8 @@ Seja direto, claro e encorajador.`;
     }
   });
 
-  // YouTube Playlists Endpoint (OAuth Protected)
-  app.get('/api/youtube-playlists', async (req, res) => {
+  // YouTube Playlists & Library Endpoint (OAuth Protected)
+  app.get(['/api/youtube-playlists', '/api/youtube-library'], async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -2013,57 +2206,207 @@ Seja direto, claro e encorajador.`;
       }
 
       const token = authHeader.replace('Bearer ', '').trim();
-      const ytUrl = 'https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=25';
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+      };
 
-      const ytRes = await fetch(ytUrl, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/json',
-        },
-      });
+      // 1. Busca playlists criadas/salvas na biblioteca (playlists.list mine=true)
+      const ytPlaylistsPromise = fetch(
+        'https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=50',
+        { headers }
+      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-      const data = await ytRes.json();
+      // 2. Busca informações do canal para obter Músicas Curtidas (LL / LM) e avatar
+      const ytChannelPromise = fetch(
+        'https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails,statistics&mine=true',
+        { headers }
+      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
 
-      if (!ytRes.ok) {
-        const isExpired = ytRes.status === 401 || data?.error?.code === 401;
-        const isForbidden = ytRes.status === 403 || data?.error?.code === 403;
-        return res.status(ytRes.status).json({
+      // 3. Busca atividades recentes do usuário (activities.list mine=true)
+      const ytActivitiesPromise = fetch(
+        'https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&mine=true&maxResults=30',
+        { headers }
+      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+      const [playlistsData, channelData, activitiesData] = await Promise.all([
+        ytPlaylistsPromise,
+        ytChannelPromise,
+        ytActivitiesPromise,
+      ]);
+
+      if (!playlistsData && !channelData && !activitiesData) {
+        return res.status(401).json({
           success: false,
           error: {
-            code: isExpired ? 'AUTH_EXPIRED' : isForbidden ? 'FORBIDDEN_SCOPE' : 'YOUTUBE_API_ERROR',
-            message: isExpired
-              ? 'Sua sessão do YouTube expirou. Por favor, autorize novamente.'
-              : isForbidden
-              ? 'Acesso não autorizado para ler playlists. Conceda a permissão ao conectar.'
-              : (data?.error?.message || 'Erro ao consultar playlists no YouTube.'),
+            code: 'AUTH_EXPIRED',
+            message: 'Sessão do YouTube expirada ou permissão insuficiente. Por favor, reconecte.',
           },
         });
       }
 
-      const playlists = (data.items || []).map((item: any) => ({
-        id: item.id,
-        title: item.snippet?.title || 'Playlist sem título',
-        description: item.snippet?.description || '',
+      const channelItem = channelData?.items?.[0];
+      const channelThumbnail =
+        channelItem?.snippet?.thumbnails?.medium?.url ||
+        channelItem?.snippet?.thumbnails?.default?.url;
+
+      // Monta lista de playlists reais da biblioteca
+      const realPlaylists: any[] = [];
+
+      // Adiciona o card padrão de "Músicas que gostei" (list=LM no YouTube Music)
+      realPlaylists.push({
+        id: 'LM',
+        title: 'Músicas que gostei',
+        description: 'Sua coleção oficial de faixas curtidas no YouTube Music (list=LM)',
         thumbnail:
-          item.snippet?.thumbnails?.medium?.url ||
-          item.snippet?.thumbnails?.default?.url ||
-          `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
-        itemCount: item.contentDetails?.itemCount || 0,
-      }));
+          channelThumbnail ||
+          'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=500&q=80',
+        itemCount: channelItem?.contentDetails?.relatedPlaylists?.likes ? 1 : 0,
+        isLikedList: true,
+        link: 'https://music.youtube.com/playlist?list=LM',
+        deepLink: 'vnd.youtube.music://music.youtube.com/playlist?list=LM',
+      });
+
+      if (playlistsData?.items && Array.isArray(playlistsData.items)) {
+        for (const item of playlistsData.items) {
+          realPlaylists.push({
+            id: item.id,
+            title: item.snippet?.title || 'Playlist sem título',
+            description: item.snippet?.description || '',
+            thumbnail:
+              item.snippet?.thumbnails?.high?.url ||
+              item.snippet?.thumbnails?.medium?.url ||
+              item.snippet?.thumbnails?.default?.url ||
+              `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+            itemCount: item.contentDetails?.itemCount || 0,
+            link: `https://music.youtube.com/playlist?list=${item.id}`,
+            deepLink: `vnd.youtube.music://music.youtube.com/playlist?list=${item.id}`,
+          });
+        }
+      }
+
+      // Monta lista de atividades recentes reais
+      const realActivities: any[] = [];
+      if (activitiesData?.items && Array.isArray(activitiesData.items)) {
+        for (const act of activitiesData.items) {
+          const videoId =
+            act.contentDetails?.upload?.videoId ||
+            act.contentDetails?.like?.resourceId?.videoId ||
+            act.contentDetails?.playlistItem?.resourceId?.videoId ||
+            act.contentDetails?.bulletin?.resourceId?.videoId;
+          const playlistId = act.contentDetails?.playlistItem?.playlistId;
+
+          if (videoId || playlistId) {
+            realActivities.push({
+              id: act.id,
+              title: act.snippet?.title || 'Música / Atividade recente',
+              description: act.snippet?.description || '',
+              publishedAt: act.snippet?.publishedAt,
+              type: act.snippet?.type || 'activity',
+              channelTitle: act.snippet?.channelTitle || 'YouTube Music',
+              thumbnail:
+                act.snippet?.thumbnails?.medium?.url ||
+                act.snippet?.thumbnails?.default?.url ||
+                (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : undefined),
+              videoId: videoId || null,
+              playlistId: playlistId || null,
+              link: videoId
+                ? `https://music.youtube.com/watch?v=${videoId}`
+                : playlistId
+                ? `https://music.youtube.com/playlist?list=${playlistId}`
+                : 'https://music.youtube.com/library',
+              deepLink: videoId
+                ? `vnd.youtube.music://music.youtube.com/watch?v=${videoId}`
+                : playlistId
+                ? `vnd.youtube.music://music.youtube.com/playlist?list=${playlistId}`
+                : 'https://music.youtube.com/library',
+            });
+          }
+        }
+      }
 
       return res.status(200).json({
         success: true,
-        playlists,
+        playlists: realPlaylists,
+        recentActivities: realActivities,
+        totalPlaylists: realPlaylists.length,
+        totalRecents: realActivities.length,
+        channel: channelItem ? {
+          title: channelItem.snippet?.title,
+          thumbnail: channelThumbnail,
+        } : null,
       });
     } catch (err: any) {
-      console.error('Erro na API de playlists do YouTube:', err);
+      console.error('Erro na API de biblioteca do YouTube:', err);
       return res.status(500).json({
         success: false,
         error: {
           code: 'INTERNAL_ERROR',
-          message: 'Falha interna ao buscar playlists.',
+          message: 'Falha interna ao buscar playlists e atividades recentes.',
         },
       });
+    }
+  });
+
+  // YouTube Recent Activities Endpoint
+  app.get('/api/youtube-recents', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
+          success: false,
+          error: { code: 'UNAUTHORIZED', message: 'Token de autorização ausente.' },
+        });
+      }
+
+      const token = authHeader.replace('Bearer ', '').trim();
+      const ytRes = await fetch(
+        'https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&mine=true&maxResults=30',
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+          },
+        }
+      );
+
+      const data = await ytRes.json();
+      if (!ytRes.ok) {
+        return res.status(ytRes.status).json({
+          success: false,
+          error: data?.error?.message || 'Falha ao buscar atividades recentes.',
+        });
+      }
+
+      const activities = (data.items || []).map((act: any) => {
+        const videoId =
+          act.contentDetails?.upload?.videoId ||
+          act.contentDetails?.like?.resourceId?.videoId ||
+          act.contentDetails?.playlistItem?.resourceId?.videoId;
+        const playlistId = act.contentDetails?.playlistItem?.playlistId;
+        return {
+          id: act.id,
+          title: act.snippet?.title || 'Atividade Recente',
+          channelTitle: act.snippet?.channelTitle || 'YouTube Music',
+          publishedAt: act.snippet?.publishedAt,
+          type: act.snippet?.type || 'activity',
+          thumbnail:
+            act.snippet?.thumbnails?.medium?.url ||
+            act.snippet?.thumbnails?.default?.url ||
+            (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : undefined),
+          videoId: videoId || null,
+          playlistId: playlistId || null,
+          link: videoId
+            ? `https://music.youtube.com/watch?v=${videoId}`
+            : playlistId
+            ? `https://music.youtube.com/playlist?list=${playlistId}`
+            : 'https://music.youtube.com/library',
+        };
+      }).filter((item: any) => Boolean(item.videoId || item.playlistId));
+
+      return res.status(200).json({ success: true, activities });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, error: 'Erro ao carregar recentes.' });
     }
   });
 
@@ -2083,8 +2426,10 @@ Seja direto, claro e encorajador.`;
 
       const authHeader = req.headers.authorization;
       const headers: Record<string, string> = { Accept: 'application/json' };
+      // Para 'LM', mapeia para 'LL' (Liked list no YouTube Data API v3)
+      const targetListId = playlistId === 'LM' ? 'LL' : playlistId;
       let url = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&maxResults=50&playlistId=${encodeURIComponent(
-        playlistId
+        targetListId
       )}`;
 
       if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -2100,6 +2445,15 @@ Seja direto, claro e encorajador.`;
       const data = await ytRes.json();
 
       if (!ytRes.ok) {
+        // Se for LM / LL e a API de dados v3 recusar por política de privacidade, habilita reprodução direta
+        if (playlistId === 'LM' || playlistId === 'LL') {
+          return res.status(200).json({
+            success: true,
+            useDirectEmbed: true,
+            directEmbedUrl: `https://www.youtube.com/embed/videoseries?list=${playlistId}&autoplay=1`,
+            tracks: [],
+          });
+        }
         return res.status(ytRes.status).json({
           success: false,
           error: {
@@ -2130,6 +2484,7 @@ Seja direto, claro e encorajador.`;
       return res.status(200).json({
         success: true,
         tracks,
+        directEmbedUrl: `https://www.youtube.com/embed/videoseries?list=${playlistId}&autoplay=1`,
       });
     } catch (err: any) {
       console.error('Erro na API de faixas da playlist do YouTube:', err);

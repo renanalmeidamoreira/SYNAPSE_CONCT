@@ -92,17 +92,40 @@ export function useGoogleMusicAuth() {
         });
         return token;
       } else {
-        throw new Error('Nenhum token de acesso foi retornado pela autenticação Google.');
+        setAuthState((prev) => ({ ...prev, isLoading: false }));
+        return null;
       }
     } catch (err: unknown) {
       const errorObj = err as { code?: string; message?: string };
+      const code = errorObj?.code || '';
+      const rawMsg = String(errorObj?.message || '');
+
+      const isClosedByUser =
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        rawMsg.includes('popup-closed-by-user') ||
+        rawMsg.includes('fechada');
+
+      const isBlocked =
+        code === 'auth/popup-blocked' ||
+        rawMsg.includes('popup-blocked') ||
+        rawMsg.includes('POPUP_BLOCKED');
+
+      if (isClosedByUser) {
+        // User closed or dismissed the popup window - clear loading without error
+        setAuthState((prev) => ({
+          ...prev,
+          isLoading: false,
+          error: null,
+        }));
+        return null;
+      }
+
       let message = 'Falha ao autenticar no Google Music / YouTube.';
-      if (errorObj?.code === 'auth/popup-blocked') {
+      if (isBlocked) {
         message = 'A janela pop-up foi bloqueada pelo navegador. Permita pop-ups para autenticar.';
-      } else if (errorObj?.code === 'auth/popup-closed-by-user') {
-        message = 'A janela de autenticação foi fechada antes da conclusão.';
-      } else if (errorObj?.message) {
-        message = errorObj.message;
+      } else if (rawMsg) {
+        message = rawMsg;
       }
 
       setAuthState((prev) => ({
@@ -110,7 +133,7 @@ export function useGoogleMusicAuth() {
         isLoading: false,
         error: message,
       }));
-      throw new Error(message);
+      return null;
     }
   };
 

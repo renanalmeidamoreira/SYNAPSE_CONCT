@@ -31,6 +31,12 @@ interface UserManagementModalProps {
 
 export const UserManagementModal: React.FC<UserManagementModalProps> = ({ onClose }) => {
   const { userEmail } = useAuth();
+
+  // Apenas o Super User r.fabulous.30@gmail.com possui acesso a este modal
+  if (!isSuperAdminEmail(userEmail)) {
+    return null;
+  }
+
   const [users, setUsers] = useState<AuthorizedUserRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);

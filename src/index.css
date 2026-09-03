@@ -1,3 +1,284 @@
 @import "tailwindcss";
 @import "react-day-picker/dist/style.css";
 @custom-variant dark (&:where(.dark, .dark *));
+@custom-variant swat (&:where([data-theme="swat"], [data-theme="swat"] *));
+@custom-variant pink (&:where([data-theme="pink"], [data-theme="pink"] *));
+
+/* Theme CSS Variables & Architectural Styling */
+:root {
+  --synapse-bg: #f8fafc;
+  --synapse-surface: #ffffff;
+  --synapse-card: #ffffff;
+  --synapse-border: #e2e8f0;
+  --synapse-accent: #4f46e5;
+  --synapse-accent-glow: rgba(79, 70, 229, 0.2);
+  --synapse-text: #0f172a;
+  --synapse-text-muted: #64748b;
+}
+
+[data-theme="dark"] {
+  --synapse-bg: #020617;
+  --synapse-surface: #0f172a;
+  --synapse-card: #0f172a;
+  --synapse-border: #1e293b;
+  --synapse-accent: #6366f1;
+  --synapse-accent-glow: rgba(99, 102, 241, 0.25);
+  --synapse-text: #f8fafc;
+  --synapse-text-muted: #94a3b8;
+}
+
+/* ==========================================================================
+   S.W.A.T. TACTICAL FUI / HUD THEME (Twisted Media CBS S.W.A.T. Command Center)
+   High-contrast, tactical carbon canvas, laser cyan telemetry, amber alerts
+   ========================================================================== */
+[data-theme="swat"] {
+  --synapse-bg: #05080e;
+  --synapse-surface: #0a111a;
+  --synapse-card: #0c1521;
+  --synapse-border: rgba(0, 240, 255, 0.35);
+  --synapse-border-subtle: rgba(0, 240, 255, 0.16);
+  --synapse-accent: #00f0ff;
+  --synapse-accent-secondary: #ffb703;
+  --synapse-accent-glow: rgba(0, 240, 255, 0.32);
+  --synapse-text: #f0f9ff;
+  --synapse-text-muted: #7dd3fc;
+}
+
+[data-theme="swat"] body {
+  background-color: #05080e !important;
+  background-image: 
+    linear-gradient(rgba(0, 240, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.04) 1px, transparent 1px);
+  background-size: 36px 36px;
+  color: #f0f9ff !important;
+}
+
+/* S.W.A.T. Tactical Cards, Panels & Contrast Corrections */
+[data-theme="swat"] .bg-slate-900,
+[data-theme="swat"] .dark\:bg-slate-900,
+[data-theme="swat"] .dark\:bg-slate-950,
+[data-theme="swat"] .bg-slate-950 {
+  background-color: #0a111a !important;
+  border-color: rgba(0, 240, 255, 0.26) !important;
+}
+
+[data-theme="swat"] .bg-slate-800,
+[data-theme="swat"] .dark\:bg-slate-800 {
+  background-color: #0b1523 !important;
+  border-color: rgba(0, 240, 255, 0.22) !important;
+}
+
+[data-theme="swat"] .hover\:bg-slate-100:hover,
+[data-theme="swat"] .hover\:bg-slate-200:hover,
+[data-theme="swat"] .dark\:hover\:bg-slate-800:hover,
+[data-theme="swat"] .dark\:hover\:bg-slate-700:hover {
+  background-color: #122238 !important;
+}
+
+[data-theme="swat"] .border-slate-800,
+[data-theme="swat"] .dark\:border-slate-800,
+[data-theme="swat"] .dark\:border-slate-700 {
+  border-color: rgba(0, 240, 255, 0.24) !important;
+}
+
+[data-theme="swat"] .text-slate-100,
+[data-theme="swat"] .dark\:text-slate-100,
+[data-theme="swat"] .dark\:text-slate-200,
+[data-theme="swat"] .dark\:text-white {
+  color: #f0f9ff !important;
+}
+
+[data-theme="swat"] .text-slate-400,
+[data-theme="swat"] .dark\:text-slate-400,
+[data-theme="swat"] .dark\:text-slate-500 {
+  color: #93c5fd !important;
+}
+
+[data-theme="swat"] .bg-indigo-600,
+[data-theme="swat"] .bg-indigo-500 {
+  background-color: #0284c7 !important;
+}
+
+[data-theme="swat"] .bg-indigo-600:hover,
+[data-theme="swat"] .bg-indigo-500:hover {
+  background-color: #00f0ff !important;
+  color: #05080e !important;
+}
+
+[data-theme="swat"] .bg-indigo-50,
+[data-theme="swat"] .dark\:bg-indigo-950,
+[data-theme="swat"] .dark\:bg-indigo-950\/50,
+[data-theme="swat"] .dark\:bg-indigo-950\/60,
+[data-theme="swat"] .dark\:bg-indigo-950\/70 {
+  background-color: rgba(0, 240, 255, 0.12) !important;
+}
+
+[data-theme="swat"] .border-indigo-200,
+[data-theme="swat"] .border-indigo-300,
+[data-theme="swat"] .dark\:border-indigo-800,
+[data-theme="swat"] .dark\:border-indigo-700 {
+  border-color: rgba(0, 240, 255, 0.3) !important;
+}
+
+[data-theme="swat"] .text-indigo-600,
+[data-theme="swat"] .text-indigo-500,
+[data-theme="swat"] .text-indigo-400,
+[data-theme="swat"] .dark\:text-indigo-400,
+[data-theme="swat"] .dark\:text-indigo-300 {
+  color: #38bdf8 !important;
+}
+
+[data-theme="swat"] .text-cyan-400 {
+  color: #00f0ff !important;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+}
+
+/* ==========================================================================
+   PINK (CYBER-ROSE NEON) THEME
+   Deep plum dark canvas, vivid hot rose & neon pink, high legibility
+   ========================================================================== */
+[data-theme="pink"] {
+  --synapse-bg: #0d0612;
+  --synapse-surface: #170a20;
+  --synapse-card: #1f0d2c;
+  --synapse-border: rgba(244, 63, 94, 0.35);
+  --synapse-border-subtle: rgba(244, 63, 94, 0.18);
+  --synapse-accent: #f43f5e;
+  --synapse-accent-secondary: #fb7185;
+  --synapse-accent-glow: rgba(244, 63, 94, 0.3);
+  --synapse-text: #fff1f2;
+  --synapse-text-muted: #fda4af;
+}
+
+[data-theme="pink"] body {
+  background-color: #0d0612 !important;
+  background-image: 
+    radial-gradient(rgba(244, 63, 94, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+  color: #fff1f2 !important;
+}
+
+/* Pink Card and Surface Enhancements */
+[data-theme="pink"] .bg-slate-900,
+[data-theme="pink"] .dark\:bg-slate-900,
+[data-theme="pink"] .dark\:bg-slate-950,
+[data-theme="pink"] .bg-slate-950 {
+  background-color: #170a20 !important;
+  border-color: rgba(244, 63, 94, 0.28) !important;
+}
+
+[data-theme="pink"] .bg-slate-800,
+[data-theme="pink"] .dark\:bg-slate-800 {
+  background-color: #210d2c !important;
+  border-color: rgba(244, 63, 94, 0.24) !important;
+}
+
+[data-theme="pink"] .hover\:bg-slate-100:hover,
+[data-theme="pink"] .hover\:bg-slate-200:hover,
+[data-theme="pink"] .dark\:hover\:bg-slate-800:hover,
+[data-theme="pink"] .dark\:hover\:bg-slate-700:hover {
+  background-color: #311340 !important;
+}
+
+[data-theme="pink"] .border-slate-800,
+[data-theme="pink"] .dark\:border-slate-800,
+[data-theme="pink"] .dark\:border-slate-700 {
+  border-color: rgba(244, 63, 94, 0.24) !important;
+}
+
+[data-theme="pink"] .text-slate-100,
+[data-theme="pink"] .dark\:text-slate-100,
+[data-theme="pink"] .dark\:text-slate-200,
+[data-theme="pink"] .dark\:text-white {
+  color: #fff1f2 !important;
+}
+
+[data-theme="pink"] .text-slate-400,
+[data-theme="pink"] .dark\:text-slate-400,
+[data-theme="pink"] .dark\:text-slate-500 {
+  color: #fbcfe8 !important;
+}
+
+[data-theme="pink"] .bg-indigo-600,
+[data-theme="pink"] .bg-indigo-500 {
+  background-color: #e11d48 !important;
+}
+
+[data-theme="pink"] .bg-indigo-600:hover,
+[data-theme="pink"] .bg-indigo-500:hover {
+  background-color: #f43f5e !important;
+}
+
+[data-theme="pink"] .bg-indigo-50,
+[data-theme="pink"] .dark\:bg-indigo-950,
+[data-theme="pink"] .dark\:bg-indigo-950\/50,
+[data-theme="pink"] .dark\:bg-indigo-950\/60,
+[data-theme="pink"] .dark\:bg-indigo-950\/70 {
+  background-color: rgba(244, 63, 94, 0.15) !important;
+}
+
+[data-theme="pink"] .border-indigo-200,
+[data-theme="pink"] .border-indigo-300,
+[data-theme="pink"] .dark\:border-indigo-800,
+[data-theme="pink"] .dark\:border-indigo-700 {
+  border-color: rgba(244, 63, 94, 0.3) !important;
+}
+
+[data-theme="pink"] .text-indigo-600,
+[data-theme="pink"] .text-indigo-500,
+[data-theme="pink"] .text-indigo-400,
+[data-theme="pink"] .dark\:text-indigo-400,
+[data-theme="pink"] .dark\:text-indigo-300 {
+  color: #fb7185 !important;
+}
+
+/* Neutralize cyan leakage in Pink Theme */
+[data-theme="pink"] .text-cyan-400,
+[data-theme="pink"] .dark\:text-cyan-400,
+[data-theme="pink"] .text-cyan-300,
+[data-theme="pink"] .dark\:text-cyan-300,
+[data-theme="pink"] .text-cyan-600 {
+  color: #f472b6 !important;
+}
+
+[data-theme="pink"] .bg-cyan-50,
+[data-theme="pink"] .dark\:bg-cyan-950,
+[data-theme="pink"] .dark\:bg-cyan-950\/60,
+[data-theme="pink"] .dark\:bg-cyan-950\/80 {
+  background-color: rgba(244, 63, 94, 0.15) !important;
+}
+
+[data-theme="pink"] .border-cyan-200,
+[data-theme="pink"] .dark\:border-cyan-800,
+[data-theme="pink"] .dark\:border-cyan-800\/60,
+[data-theme="pink"] .border-cyan-500\/40,
+[data-theme="pink"] .border-cyan-500\/50,
+[data-theme="pink"] .border-cyan-500\/60 {
+  border-color: rgba(244, 63, 94, 0.35) !important;
+}
+
+/* Custom Tactical Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme="swat"] ::-webkit-scrollbar-thumb {
+  background: rgba(0, 240, 255, 0.3);
+  border-radius: 4px;
+}
+[data-theme="swat"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 240, 255, 0.6);
+}
+
+[data-theme="pink"] ::-webkit-scrollbar-thumb {
+  background: rgba(244, 63, 94, 0.35);
+  border-radius: 4px;
+}
+[data-theme="pink"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(244, 63, 94, 0.65);
+}

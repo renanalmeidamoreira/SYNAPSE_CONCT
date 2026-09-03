@@ -18,6 +18,7 @@ import { extractEmbedUrl, openCoupledWindow } from './utils/media';
 import { callGeminiAPI } from './utils/gemini';
 import { Header } from './components/Header';
 import { useAuth } from './components/AuthContext';
+import { isSuperAdminEmail } from './lib/firebase';
 import { LoginScreen } from './components/LoginScreen';
 import { UnauthorizedScreen } from './components/UnauthorizedScreen';
 import { UserManagementModal } from './components/UserManagementModal';
@@ -27,6 +28,7 @@ import { CourseView } from './components/CourseView';
 import { MediaPanel } from './components/MediaPanel';
 import { GeminiAssistantModal } from './components/GeminiAssistantModal';
 import { GoogleWorkspaceModal } from './components/GoogleWorkspaceModal';
+import { Sidebar } from './components/Sidebar';
 import { PomodoroTimer } from './components/PomodoroTimer';
 import { MusicWidget } from './components/MusicWidget';
 import { InAppWebViewerModal } from './components/InAppWebViewerModal';
@@ -53,6 +55,7 @@ interface ToastMessage {
 
 export default function App() {
   const { user, loading, isAuthorized } = useAuth();
+  const isSuperUser = isSuperAdminEmail(user?.email);
   const [courses, setCourses] = useState<CourseData[]>(() => getCoursesFromStorage());
   const [activeCourseId, setActiveCourseIdState] = useState<string | null>(() => getActiveCourseId());
 
@@ -89,6 +92,19 @@ export default function App() {
     mode: 'focus',
     timeLeft: 1500,
   });
+
+  // Collapsible Sidebar State
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    return localStorage.getItem('synapse_sidebar_collapsed') === 'true';
+  });
+
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      localStorage.setItem('synapse_sidebar_collapsed', String(next));
+      return next;
+    });
+  }, []);
 
   // Keep references for stable window and event callbacks
   const activeCourseIdRef = useRef(activeCourseId);
@@ -352,17 +368,30 @@ export default function App() {
     );
   }
 
-  if (!user) {
-    return <LoginScreen />;
-  }
+  if (!user || !isAuthorized) {
+    return (
+      <div className="relative min-h-screen">
+        {/* O Player e o Chatbot de IA ficam acessíveis independentemente de quem esteja logado */}
+        <MusicWidget />
+        <div id="HUD-layer-unauth" className="HUD-layer fixed inset-0 z-40 pointer-events-none overflow-hidden print:hidden">
+          <FloatingAIAssistant courses={courses} flashcards={flashcards} simulados={simulados} />
+        </div>
 
-  if (!isAuthorized) {
-    return <UnauthorizedScreen />;
+        {showGeminiModal && (
+          <GeminiAssistantModal
+            courseTitle={activeCourse?.title}
+            initialMessage={geminiInitialMessage}
+            onClose={() => setShowGeminiModal(false)}
+          />
+        )}
+
+        {!user ? <LoginScreen /> : <UnauthorizedScreen />}
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 font-sans flex flex-col antialiased selection:bg-indigo-500 selection:text-slate-800 dark:text-white">
-      <FloatingAIAssistant courses={courses} flashcards={flashcards} simulados={simulados} />
       {/* Toast Notification Container */}
       <div className="fixed top-4 right-4 z-50 space-y-2 pointer-events-none max-w-sm w-full">
         {toasts.map((t) => (
@@ -405,6 +434,8 @@ export default function App() {
         onOpenWorkspaceModal={() => setShowWorkspaceModal(true)}
         onOpenUserManagement={() => setShowUserManagementModal(true)}
         onOpenConnectionsModal={() => setShowConnectionsModal(true)}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebar={handleToggleSidebar}
         onOpenPomodoro={() => {
           setShowPomodoroModal(true);
           setIsPomodoroMinimized(false);
@@ -414,55 +445,79 @@ export default function App() {
         pomodoroState={pomodoroState}
       />
 
-      {/* Main Body */}
-      <main className="flex-1 overflow-x-hidden px-4 sm:px-6 lg:px-8 xl:px-10">
-        <div className="max-w-7xl mx-auto w-full">
-          <AnimatePresence mode="wait">
-            {activeCourseId && activeCourse ? (
-              <motion.div
-                key={`course-${activeCourseId}`}
-                initial={{ opacity: 0, y: 12, scale: 0.995 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -12, scale: 0.995 }}
-                transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
-              >
-                <CourseView
-                  course={activeCourse}
-                  simulados={simulados}
-                  flashcards={flashcards}
-                  notesText={notesText}
-                  onUpdateCourse={handleUpdateActiveCourse}
-                  onUpdateSimulados={handleUpdateSimulados}
-                  onUpdateFlashcards={handleUpdateFlashcards}
-                  onSaveNotes={handleSaveCourseNotes}
-                  onOpenMedia={(item) => setActiveMediaItem(item)}
-                  onDailyTimeUpdated={handleDailyTimeUpdated}
-                />
-              </motion.div>
-            ) : (
-              <motion.div
-                key="dashboard"
-                initial={{ opacity: 0, y: 12, scale: 0.995 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -12, scale: 0.995 }}
-                transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
-              >
-                <Dashboard
-                  courses={courses}
-                  onOpenCourse={handleSelectCourse}
-                  onDeleteCourse={(id) => handleDeleteCourse(id, undefined, true)}
-                  onCreateCourse={handleCreateCourse}
-                  onUpdateCourse={(c) => {
-                    saveCourse(c);
-                    refreshCourses();
-                  }}
-                  onLoadUnifiedModel={handleLoadUnifiedModel}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </main>
+      {/* Main Container: Collapsible Sidebar + Content View */}
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+          courses={courses}
+          activeCourseId={activeCourseId}
+          activeCourse={activeCourse}
+          onSelectCourse={(id) => {
+            if (id === null) {
+              handleCloseCourse();
+            } else {
+              handleSelectCourse(id);
+            }
+          }}
+          onOpenNewCourseModal={() => setShowNewCourseModal(true)}
+          onOpenGeminiModal={() => setShowGeminiModal(true)}
+          onOpenWorkspaceModal={() => setShowWorkspaceModal(true)}
+          onOpenUserManagement={() => setShowUserManagementModal(true)}
+          onOpenConnectionsModal={() => setShowConnectionsModal(true)}
+          onLoadUnifiedModel={handleLoadUnifiedModel}
+        />
+
+        {/* Main Body */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 sm:px-6 lg:px-8 xl:px-10 py-4">
+          <div className="max-w-7xl mx-auto w-full">
+            <AnimatePresence mode="wait">
+              {activeCourseId && activeCourse ? (
+                <motion.div
+                  key={`course-${activeCourseId}`}
+                  initial={{ opacity: 0, y: 12, scale: 0.995 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.995 }}
+                  transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
+                >
+                  <CourseView
+                    course={activeCourse}
+                    simulados={simulados}
+                    flashcards={flashcards}
+                    notesText={notesText}
+                    onUpdateCourse={handleUpdateActiveCourse}
+                    onUpdateSimulados={handleUpdateSimulados}
+                    onUpdateFlashcards={handleUpdateFlashcards}
+                    onSaveNotes={handleSaveCourseNotes}
+                    onOpenMedia={(item) => setActiveMediaItem(item)}
+                    onDailyTimeUpdated={handleDailyTimeUpdated}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="dashboard"
+                  initial={{ opacity: 0, y: 12, scale: 0.995 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -12, scale: 0.995 }}
+                  transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
+                >
+                  <Dashboard
+                    courses={courses}
+                    onOpenCourse={handleSelectCourse}
+                    onDeleteCourse={(id) => handleDeleteCourse(id, undefined, true)}
+                    onCreateCourse={handleCreateCourse}
+                    onUpdateCourse={(c) => {
+                      saveCourse(c);
+                      refreshCourses();
+                    }}
+                    onLoadUnifiedModel={handleLoadUnifiedModel}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </main>
+      </div>
 
       {/* Split Media Panel Viewer */}
       {activeMediaItem && (
@@ -542,14 +597,17 @@ export default function App() {
         />
       </div>
 
-      {/* Floating Study Calendar Widget (react-day-picker) */}
-      <FloatingStudyCalendar />
+      {/* HUD-layer - Dedicated overlay for floating widgets with pointer-events-none to prevent overlapping layout conflicts */}
+      <div id="HUD-layer" className="HUD-layer fixed inset-0 z-40 pointer-events-none overflow-hidden print:hidden">
+        <FloatingStudyCalendar />
+        <FloatingAIAssistant courses={courses} flashcards={flashcards} simulados={simulados} />
+      </div>
 
       {/* SYNAPSE-Branded NotebookLM Ecosystem Bridge */}
       <NotebookLMSynapseBridge />
 
-      {/* User Management & Whitelist Modal (Admin Only) */}
-      {showUserManagementModal && (
+      {/* User Management & Whitelist Modal (Exclusivo Super User r.fabulous.30@gmail.com) */}
+      {showUserManagementModal && isSuperUser && (
         <UserManagementModal onClose={() => setShowUserManagementModal(false)} />
       )}
 

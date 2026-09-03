@@ -36,15 +36,19 @@ export const NotebookLMSynapseBridge: React.FC = () => {
     setStatus('launching');
     
     setTimeout(() => {
-      window.open(targetUrl, '_blank', 'noopener,noreferrer');
+      window.dispatchEvent(
+        new CustomEvent('open-inapp-web', {
+          detail: { url: targetUrl, title: 'Google NotebookLM' },
+        })
+      );
       setStatus('connected');
       setNotebookActiveBadge(true);
       
       // Auto close bridge dialog after launch
       setTimeout(() => {
         setIsOpen(false);
-      }, 1500);
-    }, 600);
+      }, 1000);
+    }, 400);
   };
 
   return (
@@ -61,9 +65,15 @@ export const NotebookLMSynapseBridge: React.FC = () => {
               <span className="text-[9px] text-slate-400">Trabalhando em aba paralela</span>
             </div>
             <button
-              onClick={() => window.open(targetUrl, '_blank', 'noopener,noreferrer')}
+              onClick={() => {
+                window.dispatchEvent(
+                  new CustomEvent('open-inapp-web', {
+                    detail: { url: targetUrl, title: 'Google NotebookLM' },
+                  })
+                );
+              }}
               className="ml-1 p-1 hover:bg-slate-800 rounded-lg text-amber-300 hover:text-amber-200 transition-colors cursor-pointer"
-              title="Reabrir aba do NotebookLM"
+              title="Abrir Google NotebookLM no SYNAPSE"
             >
               <ExternalLink className="w-3.5 h-3.5" />
             </button>
