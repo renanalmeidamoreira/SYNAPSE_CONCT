@@ -33,10 +33,21 @@ import {
   SlidersHorizontal,
   Disc,
   Music,
+  Bookmark,
+  BookmarkPlus,
+  BookmarkCheck,
 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useServiceAuthContext } from '../context/ServiceAuthContext';
 import { useTheme } from './ThemeProvider';
+
+export interface SavedStudyPlaylist {
+  id: string;
+  title: string;
+  itemCount?: number;
+  thumbnail?: string;
+  custom?: boolean;
+}
 
 const YTContainer = React.memo(() => <div id="yt-widget-iframe" className="w-full h-full" />, () => true);
 
@@ -176,7 +187,7 @@ export const MusicWidget: React.FC = () => {
   // YouTube OAuth Playlists & Library state
   const [userPlaylists, setUserPlaylists] = useState<UserPlaylist[]>([]);
   const [recentActivities, setRecentActivities] = useState<RecentActivityItem[]>([]);
-  const [librarySubTab, setLibrarySubTab] = useState<'playlists' | 'recents'>('playlists');
+  const [librarySubTab, setLibrarySubTab] = useState<'playlists' | 'saved' | 'recents'>('playlists');
   const [loadingPlaylists, setLoadingPlaylists] = useState<boolean>(false);
   const [playlistAuthError, setPlaylistAuthError] = useState<boolean>(false);
   const [popupBlocked, setPopupBlocked] = useState<boolean>(false);
@@ -185,6 +196,44 @@ export const MusicWidget: React.FC = () => {
   const [isLoadingPlaylistLink, setIsLoadingPlaylistLink] = useState<boolean>(false);
   const [directEmbedPlaylistId, setDirectEmbedPlaylistId] = useState<string | null>(null);
   const [isDirectEmbedMode, setIsDirectEmbedMode] = useState<boolean>(false);
+
+  // Persistent Saved Study Playlists
+  const [savedPlaylists, setSavedPlaylists] = useState<SavedStudyPlaylist[]>(() => {
+    try {
+      const stored = localStorage.getItem('synapse_saved_study_playlists');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return [
+      {
+        id: 'PLofht4PTcKYnaH8w5gkDC26ASmawF2PC7',
+        title: 'Lofi Study Beats & Foco',
+        thumbnail: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=300&q=80',
+        itemCount: 50,
+        custom: false,
+      },
+      {
+        id: 'PL3-sRm8xAzY9xXQ4Q6R77wR91zJjL-VbX',
+        title: 'Piano & Cordas para Concentração Profunda',
+        thumbnail: 'https://images.unsplash.com/photo-1520523839898-507127054992?w=300&q=80',
+        itemCount: 40,
+        custom: false,
+      },
+      {
+        id: 'PLFPg_IUxqnZNt1e1Abl6vVq_jMh6L9t2e',
+        title: 'Synthwave / Retrowave Study Space',
+        thumbnail: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?w=300&q=80',
+        itemCount: 35,
+        custom: false,
+      },
+      {
+        id: 'PL4QNnZMr8qwW7GZlR8q7QZ_2vWj_B6Y_X',
+        title: 'Ondas Alfa & Ruído Marrom para Foco Extremo',
+        thumbnail: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=300&q=80',
+        itemCount: 25,
+        custom: false,
+      },
+    ];
+  });
 
   // Queue state
   const [queue, setQueue] = useState<MusicQueueItem[]>([
@@ -399,7 +448,8 @@ export const MusicWidget: React.FC = () => {
       ? localStorage.getItem('synapse_youtube_token') || localStorage.getItem('synapse_google_music_token')
       : null);
 
-  const isConnected = Boolean(googleMusic.isAuthenticated || effectiveToken);
+  const hasValidAuth = Boolean(effectiveToken && !playlistAuthError);
+  const isConnected = Boolean((googleMusic.isAuthenticated || hasValidAuth) && !playlistAuthError);
   const connectedUserEmail =
     googleMusic.userEmail ||
     user?.email ||
@@ -409,10 +459,12 @@ export const MusicWidget: React.FC = () => {
   const fetchUserPlaylists = async (overrideToken?: string) => {
     const token =
       overrideToken ||
+      effectiveToken ||
       googleMusic.accessToken ||
       googleAccessToken ||
-      localStorage.getItem('synapse_youtube_token') ||
-      localStorage.getItem('synapse_google_music_token');
+      (typeof window !== 'undefined'
+        ? localStorage.getItem('synapse_youtube_token') || localStorage.getItem('synapse_google_music_token')
+        : null);
 
     if (!token) {
       setPlaylistAuthError(true);
@@ -442,6 +494,10 @@ export const MusicWidget: React.FC = () => {
       } else {
         if (res.status === 401 || data?.error?.code === 'AUTH_EXPIRED') {
           setPlaylistAuthError(true);
+          try {
+            localStorage.removeItem('synapse_youtube_token');
+            localStorage.removeItem('synapse_google_music_token');
+          } catch (e) {}
         } else {
           setErrorToast(data?.error?.message || 'Erro ao carregar dados do YouTube Music.');
         }
@@ -456,10 +512,10 @@ export const MusicWidget: React.FC = () => {
 
   // Auto-fetch when playlists tab is opened and user is connected
   useEffect(() => {
-    if (activeTab === 'playlists' && effectiveToken) {
+    if (activeTab === 'playlists' && effectiveToken && !playlistAuthError) {
       fetchUserPlaylists(effectiveToken);
     }
-  }, [activeTab, effectiveToken]);
+  }, [activeTab, effectiveToken, playlistAuthError]);
 
   // Auto-fetch when user logs in via googleMusic
   useEffect(() => {
@@ -529,6 +585,61 @@ export const MusicWidget: React.FC = () => {
     setSuccessToast('Conta do YouTube desconectada.');
   };
 
+  // Saved study playlists persistence handlers
+  const handleSavePlaylist = (pl: { id: string; title: string; thumbnail?: string; itemCount?: number }) => {
+    setSavedPlaylists((prev) => {
+      if (prev.some((p) => p.id === pl.id)) {
+        setSuccessToast(`"${pl.title}" já está nas suas Playlists Salvas!`);
+        return prev;
+      }
+      const updated = [{ ...pl, custom: true }, ...prev];
+      try {
+        localStorage.setItem('synapse_saved_study_playlists', JSON.stringify(updated));
+      } catch (e) {}
+      setSuccessToast(`Playlist "${pl.title}" salva nos favoritos!`);
+      return updated;
+    });
+  };
+
+  const handleRemoveSavedPlaylist = (id: string, title: string) => {
+    setSavedPlaylists((prev) => {
+      const updated = prev.filter((p) => p.id !== id);
+      try {
+        localStorage.setItem('synapse_saved_study_playlists', JSON.stringify(updated));
+      } catch (e) {}
+      setSuccessToast(`Playlist "${title}" removida.`);
+      return updated;
+    });
+  };
+
+  const handleSaveCurrentInputPlaylist = () => {
+    const raw = playlistLinkInput.trim();
+    if (!raw) {
+      setErrorToast('Insira uma URL ou ID da playlist para salvar.');
+      return;
+    }
+    let targetId = raw;
+    const parsed = parseYouTubeUrl(raw);
+    if (parsed?.listId) {
+      targetId = parsed.listId;
+    } else if (parsed?.type === 'playlist') {
+      targetId = parsed.id;
+    } else {
+      const match = raw.match(/[?&]list=([a-zA-Z0-9_-]+)/);
+      if (match) targetId = match[1];
+    }
+    handleSavePlaylist({
+      id: targetId,
+      title: `Playlist de Estudo (${targetId.slice(0, 8)}...)`,
+      itemCount: 0,
+    });
+    setPlaylistLinkInput('');
+  };
+
+  const handlePlaySavedPlaylist = (pl: SavedStudyPlaylist) => {
+    handleLoadPlaylistByLink(pl.id, true);
+  };
+
   const handleLoadPlaylistByLink = async (playlistIdentifier?: string, forceDirectEmbed: boolean = false) => {
     const raw = (playlistIdentifier || playlistLinkInput).trim();
     if (!raw) return;
@@ -566,6 +677,7 @@ export const MusicWidget: React.FC = () => {
           title: 'Músicas que gostei (YouTube Music)',
           listId: 'LM',
         });
+        safeCall('loadPlaylist', { list: 'LM', listType: 'playlist', index: 0 });
         setIsPlaying(true);
         setSuccessToast('Iniciando Músicas Curtidas do YouTube Music!');
         setPlaylistLinkInput('');
@@ -580,18 +692,26 @@ export const MusicWidget: React.FC = () => {
         setCurrentItem({
           type: 'playlist',
           id: targetId,
-          title: 'Playlist Direta',
+          title: 'Playlist de Estudo',
           listId: targetId,
         });
+        safeCall('loadPlaylist', { list: targetId, listType: 'playlist', index: 0 });
         setIsPlaying(true);
-        setSuccessToast('Iniciando reprodução no Player Direto do YouTube!');
+        setSuccessToast('Iniciando reprodução no Player Direto!');
         setPlaylistLinkInput('');
         setActiveTab('player');
         return;
       }
 
       // Call secure server proxy with fallback
-      const token = googleAccessToken || localStorage.getItem('synapse_youtube_token');
+      const token =
+        effectiveToken ||
+        googleAccessToken ||
+        googleMusic.accessToken ||
+        (typeof window !== 'undefined'
+          ? localStorage.getItem('synapse_youtube_token') || localStorage.getItem('synapse_google_music_token')
+          : null);
+
       let rawItems: any[] = [];
       try {
         const itemRes = await fetch(`/api/youtube-playlist-items?playlistId=${encodeURIComponent(targetId)}`, {
@@ -678,7 +798,13 @@ export const MusicWidget: React.FC = () => {
 
   const handleSelectUserPlaylist = async (playlist: UserPlaylist) => {
     setLoadingPlaylistId(playlist.id);
-    const token = googleAccessToken || localStorage.getItem('synapse_youtube_token');
+    const token =
+      effectiveToken ||
+      googleAccessToken ||
+      googleMusic.accessToken ||
+      (typeof window !== 'undefined'
+        ? localStorage.getItem('synapse_youtube_token') || localStorage.getItem('synapse_google_music_token')
+        : null);
 
     // Suporte especial a Músicas Curtidas (LM)
     if (playlist.id === 'LM' || playlist.isLikedList) {
@@ -1774,7 +1900,7 @@ export const MusicWidget: React.FC = () => {
                   )}
                 </div>
 
-                {/* Unified YouTube Music Account Status */}
+                {/* Account Status / Auth Guidance Banner */}
                 {isConnected ? (
                   <div className="bg-indigo-950/40 border border-indigo-500/40 p-3 rounded-2xl flex items-center justify-between gap-2 shadow-sm">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -1793,7 +1919,7 @@ export const MusicWidget: React.FC = () => {
                       <button
                         onClick={() => fetchUserPlaylists()}
                         disabled={loadingPlaylists}
-                        className="text-[10px] bg-slate-800/80 hover:bg-slate-700 text-slate-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
+                        className="text-[10px] bg-slate-800/80 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 cursor-pointer"
                         title="Buscar playlists do seu canal"
                       >
                         <RefreshCw className={`w-3 h-3 ${loadingPlaylists ? 'animate-spin' : ''}`} />
@@ -1808,8 +1934,36 @@ export const MusicWidget: React.FC = () => {
                       </button>
                     </div>
                   </div>
+                ) : user?.email ? (
+                  /* User logged in to app with Google, but needs YouTube scope confirmation */
+                  <div className="bg-gradient-to-r from-indigo-950/60 to-purple-950/50 border border-indigo-500/40 p-3 rounded-2xl space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                        <span className="text-xs font-bold text-white">Sincronizar Playlists do YouTube</span>
+                      </div>
+                      <span className="text-[10px] text-indigo-300 bg-indigo-900/60 px-2 py-0.5 rounded-md truncate max-w-[150px]">
+                        {user.email}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Conectado como <strong className="text-white">{user.email}</strong>. Autorize a leitura da sua biblioteca para puxar suas playlists existentes e curtidas.
+                    </p>
+                    <button
+                      onClick={handleConnectYouTube}
+                      disabled={loadingPlaylists}
+                      className="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 px-3 rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      {loadingPlaylists ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <FolderHeart className="w-4 h-4" />
+                      )}
+                      <span>Puxar Minhas Playlists do YouTube</span>
+                    </button>
+                  </div>
                 ) : (
-                  /* Single Clean Login Card */
+                  /* Clean login card for unauthenticated users */
                   <div className="bg-slate-950/80 border border-slate-800/90 p-4 rounded-2xl text-center space-y-3">
                     <div className="w-12 h-12 mx-auto rounded-2xl bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
                       <FolderHeart className="w-6 h-6" />
@@ -1819,7 +1973,7 @@ export const MusicWidget: React.FC = () => {
                         Sincronizar Playlists do YouTube Music
                       </h4>
                       <p className="text-[11px] text-slate-400 leading-relaxed max-w-xs mx-auto">
-                        Conecte sua conta do Google para puxar automaticamente suas playlists existentes e recentes para o seu momento de foco.
+                        Conecte sua conta do Google para puxar automaticamente suas playlists existentes para o seu momento de foco.
                       </p>
                     </div>
                     <button
@@ -1837,11 +1991,30 @@ export const MusicWidget: React.FC = () => {
                   </div>
                 )}
 
-                {/* Direct Playlist Link Importer (No login required) */}
+                {/* Playlist Auth Alert if expired/needs grant */}
+                {playlistAuthError && (
+                  <div className="bg-amber-950/40 border border-amber-800/80 text-amber-200 p-2.5 rounded-2xl text-[11px] flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="truncate">Sessão do YouTube precisa de confirmação.</span>
+                    </div>
+                    <button
+                      onClick={handleConnectYouTube}
+                      className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-lg transition-colors cursor-pointer text-[10px] shrink-0"
+                    >
+                      Reconectar
+                    </button>
+                  </div>
+                )}
+
+                {/* Direct Playlist Link Importer & Quick Saver */}
                 <div className="bg-slate-950/70 border border-slate-800 p-3 rounded-2xl space-y-2">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                    Carregar Playlist por Link ou ID
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Carregar Playlist por Link ou ID
+                    </label>
+                    <span className="text-[10px] text-slate-500">Qualquer link do YouTube</span>
+                  </div>
                   <div className="space-y-2">
                     <input
                       type="text"
@@ -1849,16 +2022,25 @@ export const MusicWidget: React.FC = () => {
                       value={playlistLinkInput}
                       onChange={(e) => setPlaylistLinkInput(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleLoadPlaylistByLink();
+                        if (e.key === 'Enter') handleLoadPlaylistByLink(undefined, true);
                       }}
                       className="w-full bg-slate-900 border border-slate-700/80 text-xs text-white placeholder-slate-500 px-3 py-2 rounded-xl focus:outline-none focus:border-indigo-500"
                     />
-                    <div className="flex gap-2">
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => handleLoadPlaylistByLink(undefined, true)}
+                        disabled={isLoadingPlaylistLink || !playlistLinkInput.trim()}
+                        className="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:bg-slate-800 text-white font-bold text-xs py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
+                        title="Toca a playlist direto sem depender de permissões"
+                      >
+                        <Play className="w-3.5 h-3.5 fill-white" />
+                        <span>Tocar Direto</span>
+                      </button>
                       <button
                         onClick={() => handleLoadPlaylistByLink(undefined, false)}
                         disabled={isLoadingPlaylistLink || !playlistLinkInput.trim()}
                         className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white font-bold text-xs py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
-                        title="Carrega as faixas individualmente via Proxy Seguro"
+                        title="Carrega as faixas individualmente na fila"
                       >
                         {isLoadingPlaylistLink ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -1868,13 +2050,13 @@ export const MusicWidget: React.FC = () => {
                         <span>Carregar Faixas</span>
                       </button>
                       <button
-                        onClick={() => handleLoadPlaylistByLink(undefined, true)}
-                        disabled={isLoadingPlaylistLink || !playlistLinkInput.trim()}
-                        className="flex-1 bg-cyan-700 hover:bg-cyan-600 disabled:bg-slate-800 text-white font-bold text-xs py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-sm"
-                        title="Toca a playlist direto sem depender de chave de API"
+                        onClick={handleSaveCurrentInputPlaylist}
+                        disabled={!playlistLinkInput.trim()}
+                        className="px-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 font-semibold text-xs py-2 rounded-xl transition-colors cursor-pointer flex items-center justify-center gap-1"
+                        title="Salvar esta playlist nos favoritos"
                       >
-                        <Play className="w-3.5 h-3.5 fill-white" />
-                        <span>Tocar Direto</span>
+                        <BookmarkPlus className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Salvar</span>
                       </button>
                     </div>
                   </div>
@@ -1895,242 +2077,371 @@ export const MusicWidget: React.FC = () => {
                   </div>
                 )}
 
-                {/* Playlists & Recents Library (Pulled directly from YouTube Music) */}
-                {isConnected && (
-                  <div className="space-y-3">
-                    {/* Subtabs: Playlists vs Atividades Recentes + Direct link to music.youtube.com/library */}
-                    <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
-                      <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
-                        <button
-                          onClick={() => setLibrarySubTab('playlists')}
-                          className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
-                            librarySubTab === 'playlists'
-                              ? 'bg-indigo-600 text-white shadow-sm'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          <FolderHeart className="w-3.5 h-3.5" />
-                          <span>Playlists ({userPlaylists.length})</span>
-                        </button>
-                        <button
-                          onClick={() => setLibrarySubTab('recents')}
-                          className={`px-3 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
-                            librarySubTab === 'recents'
-                              ? 'bg-cyan-600 text-white shadow-sm'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          <History className="w-3.5 h-3.5" />
-                          <span>Recentes ({recentActivities.length})</span>
-                        </button>
-                      </div>
-
-                      <a
-                        href="https://music.youtube.com/library"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-[10px] text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1 shrink-0 p-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 hover:border-cyan-500/40"
-                        title="Abrir Biblioteca Completa no YouTube Music"
+                {/* Playlists, Salvas de Estudo & Atividades Recentes Subtabs */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-1 border-b border-slate-800/80 pb-2 overflow-x-auto">
+                    <div className="flex items-center gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800 shrink-0">
+                      <button
+                        onClick={() => setLibrarySubTab('playlists')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                          librarySubTab === 'playlists'
+                            ? 'bg-indigo-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
                       >
-                        <span className="hidden sm:inline">music.youtube.com/library</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
+                        <FolderHeart className="w-3.5 h-3.5" />
+                        <span>YouTube ({userPlaylists.length})</span>
+                      </button>
+                      <button
+                        onClick={() => setLibrarySubTab('saved')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                          librarySubTab === 'saved'
+                            ? 'bg-emerald-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <Bookmark className="w-3.5 h-3.5" />
+                        <span>Salvas ({savedPlaylists.length})</span>
+                      </button>
+                      <button
+                        onClick={() => setLibrarySubTab('recents')}
+                        className={`px-2.5 py-1.5 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                          librarySubTab === 'recents'
+                            ? 'bg-cyan-600 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <History className="w-3.5 h-3.5" />
+                        <span>Recentes ({recentActivities.length})</span>
+                      </button>
                     </div>
 
-                    {loadingPlaylists ? (
+                    <a
+                      href="https://music.youtube.com/library"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1 shrink-0 p-1.5 rounded-lg bg-slate-950/60 border border-slate-800/80 hover:border-cyan-500/40"
+                      title="Abrir Biblioteca Completa no YouTube Music"
+                    >
+                      <span className="hidden sm:inline">music.youtube.com</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+
+                  {/* 1. Playlists Subtab (YouTube Library) */}
+                  {librarySubTab === 'playlists' && (
+                    loadingPlaylists ? (
                       <div className="text-center py-8 text-slate-400 space-y-2">
                         <Loader2 className="w-7 h-7 animate-spin mx-auto text-indigo-400" />
                         <p className="text-xs">Sincronizando com sua Biblioteca do YouTube Music...</p>
                       </div>
-                    ) : librarySubTab === 'playlists' ? (
-                      /* Playlists Tab */
-                      userPlaylists.length === 0 ? (
-                        <div className="text-center py-6 text-slate-400 space-y-2.5 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
-                          <FolderHeart className="w-8 h-8 mx-auto opacity-40 text-indigo-400" />
-                          <p className="text-xs font-semibold text-slate-200">Nenhuma playlist encontrada na sua biblioteca</p>
-                          <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
-                            Nenhuma playlist criada ou salva foi localizada no seu perfil do YouTube Music.
-                          </p>
-                          <a
-                            href="https://music.youtube.com/library"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-indigo-300 border border-slate-700/80 rounded-xl text-xs font-semibold transition-all shadow-sm cursor-pointer"
+                    ) : !isConnected ? (
+                      <div className="text-center py-6 text-slate-400 space-y-2.5 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
+                        <FolderHeart className="w-8 h-8 mx-auto opacity-40 text-indigo-400" />
+                        <p className="text-xs font-semibold text-slate-200">Biblioteca do YouTube não conectada</p>
+                        <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                          Conecte sua conta ou toque diretamente as playlists de foco na aba <strong>Salvas</strong>.
+                        </p>
+                        <div className="flex gap-2 justify-center">
+                          <button
+                            onClick={handleConnectYouTube}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold transition-all cursor-pointer"
                           >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span>Abrir Biblioteca no YouTube Music</span>
-                          </a>
+                            Conectar Agora
+                          </button>
+                          <button
+                            onClick={() => setLibrarySubTab('saved')}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-semibold transition-all cursor-pointer"
+                          >
+                            Ver Salvas de Estudo
+                          </button>
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
-                            <span>Playlists da sua Biblioteca ({userPlaylists.length})</span>
-                            <span className="text-[10px] text-slate-500 font-mono">list=ID</span>
-                          </div>
-                          <div className="max-h-64 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                            {userPlaylists.map((pl) => (
-                              <div
-                                key={pl.id}
-                                className="bg-slate-950/60 hover:bg-indigo-950/30 border border-slate-800 hover:border-indigo-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 group"
-                              >
-                                <div
-                                  onClick={() => handleSelectUserPlaylist(pl)}
-                                  className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
-                                >
-                                  {pl.isLikedList || pl.id === 'LM' ? (
-                                    <div className="w-12 h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0 shadow-sm">
-                                      <Heart className="w-5 h-5 fill-rose-500" />
-                                    </div>
-                                  ) : pl.thumbnail ? (
-                                    <img
-                                      src={pl.thumbnail}
-                                      alt={pl.title}
-                                      className="w-12 h-10 object-cover rounded-xl bg-slate-900 shrink-0 border border-slate-800"
-                                    />
-                                  ) : (
-                                    <div className="w-12 h-10 rounded-xl bg-indigo-900/40 border border-indigo-700/40 flex items-center justify-center text-indigo-400 shrink-0">
-                                      <ListMusic className="w-4 h-4" />
-                                    </div>
-                                  )}
-
-                                  <div className="min-w-0">
-                                    <div className="flex items-center gap-1.5">
-                                      <h4 className="text-xs font-bold text-white truncate group-hover:text-indigo-300 transition-colors">
-                                        {pl.title}
-                                      </h4>
-                                      {pl.id === 'LM' && (
-                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-950/70 border border-rose-700/40 text-rose-300 font-medium shrink-0">
-                                          Curtidas
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                                      <span>{pl.id === 'LM' ? 'Músicas Curtidas' : `${pl.itemCount || 0} vídeos`}</span>
-                                      <span className="text-slate-600">•</span>
-                                      <span className="font-mono text-slate-500 text-[9px]">list={pl.id}</span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <a
-                                    href={pl.link || `https://music.youtube.com/playlist?list=${pl.id}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 rounded-xl transition-all border border-slate-800"
-                                    title="Abrir no YouTube Music (music.youtube.com)"
-                                  >
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                  </a>
-                                  <button
-                                    onClick={() => handleSelectUserPlaylist(pl)}
-                                    disabled={loadingPlaylistId === pl.id}
-                                    className="p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
-                                    title="Tocar Playlist"
-                                  >
-                                    {loadingPlaylistId === pl.id ? (
-                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                    ) : (
-                                      <Play className="w-3.5 h-3.5 fill-white" />
-                                    )}
-                                    <span className="text-[10px] hidden sm:inline">Tocar</span>
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
+                      </div>
+                    ) : userPlaylists.length === 0 ? (
+                      <div className="text-center py-6 text-slate-400 space-y-3 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
+                        <FolderHeart className="w-8 h-8 mx-auto opacity-40 text-indigo-400" />
+                        <div>
+                          <p className="text-xs font-semibold text-slate-200">Nenhuma playlist personalizada encontrada</p>
+                          <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed mt-1">
+                            Você pode tocar suas músicas curtidas agora ou ouvir playlists de estudo prontas:
+                          </p>
                         </div>
-                      )
+
+                        {/* Quick 1-click Liked Music Player */}
+                        <button
+                          onClick={() => handleSelectUserPlaylist({ id: 'LM', title: 'Músicas que gostei', isLikedList: true })}
+                          className="w-full bg-slate-900/90 hover:bg-rose-950/30 border border-slate-700/80 hover:border-rose-500/50 p-2.5 rounded-xl flex items-center justify-between transition-all cursor-pointer"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0">
+                              <Heart className="w-4 h-4 fill-rose-500" />
+                            </div>
+                            <div className="text-left">
+                              <p className="text-xs font-bold text-white">Músicas que gostei (LM)</p>
+                              <p className="text-[10px] text-slate-400">Tocar todas as suas faixas curtidas no YouTube Music</p>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-bold">
+                            Tocar
+                          </span>
+                        </button>
+
+                        <button
+                          onClick={() => setLibrarySubTab('saved')}
+                          className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
+                        >
+                          <span>Ouvir Playlists Salvas para Estudo ({savedPlaylists.length})</span>
+                        </button>
+                      </div>
                     ) : (
-                      /* Atividades Recentes Tab */
-                      recentActivities.length === 0 ? (
-                        <div className="text-center py-6 text-slate-400 space-y-2.5 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
-                          <History className="w-8 h-8 mx-auto opacity-40 text-cyan-400" />
-                          <p className="text-xs font-semibold text-slate-200">Sem atividades recentes</p>
-                          <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
-                            Nenhuma atividade recente registrada recentemente na sua conta do YouTube Music.
-                          </p>
-                          <a
-                            href="https://music.youtube.com/library"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700/80 rounded-xl text-xs font-semibold transition-all shadow-sm cursor-pointer"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span>Acessar YouTube Music</span>
-                          </a>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                          <span>Playlists da sua Biblioteca ({userPlaylists.length})</span>
+                          <span className="text-[10px] text-slate-500 font-mono">list=ID</span>
                         </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
-                            <span>Atividades Recentes ({recentActivities.length})</span>
-                            <span className="text-[10px] text-cyan-400">Direto da sua conta</span>
-                          </div>
-                          <div className="max-h-64 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                            {recentActivities.map((act) => (
+                        <div className="max-h-64 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                          {userPlaylists.map((pl) => (
+                            <div
+                              key={pl.id}
+                              className="bg-slate-950/60 hover:bg-indigo-950/30 border border-slate-800 hover:border-indigo-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                            >
                               <div
-                                key={act.id}
-                                className="bg-slate-950/60 hover:bg-cyan-950/30 border border-slate-800 hover:border-cyan-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                                onClick={() => handleSelectUserPlaylist(pl)}
+                                className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
                               >
-                                <div
-                                  onClick={() => handleSelectRecentActivity(act)}
-                                  className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
-                                >
-                                  {act.thumbnail ? (
-                                    <img
-                                      src={act.thumbnail}
-                                      alt={act.title}
-                                      className="w-12 h-10 object-cover rounded-xl bg-slate-900 shrink-0 border border-slate-800"
-                                    />
-                                  ) : (
-                                    <div className="w-12 h-10 rounded-xl bg-cyan-900/40 border border-cyan-700/40 flex items-center justify-center text-cyan-400 shrink-0">
-                                      <Music2 className="w-4 h-4" />
-                                    </div>
-                                  )}
+                                {pl.isLikedList || pl.id === 'LM' ? (
+                                  <div className="w-12 h-10 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center shrink-0 shadow-sm">
+                                    <Heart className="w-5 h-5 fill-rose-500" />
+                                  </div>
+                                ) : pl.thumbnail ? (
+                                  <img
+                                    src={pl.thumbnail}
+                                    alt={pl.title}
+                                    className="w-12 h-10 object-cover rounded-xl bg-slate-900 shrink-0 border border-slate-800"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-10 rounded-xl bg-indigo-900/40 border border-indigo-700/40 flex items-center justify-center text-indigo-400 shrink-0">
+                                    <ListMusic className="w-4 h-4" />
+                                  </div>
+                                )}
 
-                                  <div className="min-w-0">
-                                    <h4 className="text-xs font-bold text-white truncate group-hover:text-cyan-300 transition-colors">
-                                      {act.title}
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <h4 className="text-xs font-bold text-white truncate group-hover:text-indigo-300 transition-colors">
+                                      {pl.title}
                                     </h4>
-                                    <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
-                                      <span className="truncate">{act.channelTitle || 'YouTube Music'}</span>
-                                      {act.type === 'like' && (
-                                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-950/60 border border-rose-700/40 text-rose-300 font-medium shrink-0 flex items-center gap-0.5">
-                                          <Heart className="w-2.5 h-2.5 fill-rose-500" />
-                                          <span>Curtida</span>
-                                        </span>
-                                      )}
-                                    </div>
+                                    {pl.id === 'LM' && (
+                                      <span className="text-[9px] px-1.5 py-0.5 rounded bg-rose-950/70 border border-rose-700/40 text-rose-300 font-medium shrink-0">
+                                        Curtidas
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                    <span>{pl.id === 'LM' ? 'Músicas Curtidas' : `${pl.itemCount || 0} vídeos`}</span>
+                                    <span className="text-slate-600">•</span>
+                                    <span className="font-mono text-slate-500 text-[9px]">list={pl.id}</span>
                                   </div>
                                 </div>
+                              </div>
 
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <a
-                                    href={act.link || (act.videoId ? `https://music.youtube.com/watch?v=${act.videoId}` : 'https://music.youtube.com')}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 rounded-xl transition-all border border-slate-800"
-                                    title="Abrir no YouTube Music"
-                                  >
-                                    <ExternalLink className="w-3.5 h-3.5" />
-                                  </a>
-                                  <button
-                                    onClick={() => handleSelectRecentActivity(act)}
-                                    className="p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
-                                    title="Tocar Faixa Recente"
-                                  >
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  onClick={() => handleSavePlaylist(pl)}
+                                  className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-emerald-400 rounded-xl transition-all border border-slate-800 cursor-pointer"
+                                  title="Salvar nas Playlists de Estudo"
+                                >
+                                  <BookmarkPlus className="w-3.5 h-3.5" />
+                                </button>
+                                <a
+                                  href={pl.link || `https://music.youtube.com/playlist?list=${pl.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 rounded-xl transition-all border border-slate-800"
+                                  title="Abrir no YouTube Music (music.youtube.com)"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                                <button
+                                  onClick={() => handleSelectUserPlaylist(pl)}
+                                  disabled={loadingPlaylistId === pl.id}
+                                  className="p-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                  title="Tocar Playlist"
+                                >
+                                  {loadingPlaylistId === pl.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
                                     <Play className="w-3.5 h-3.5 fill-white" />
-                                    <span className="text-[10px] hidden sm:inline">Tocar</span>
-                                  </button>
+                                  )}
+                                  <span className="text-[10px] hidden sm:inline">Tocar</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {/* 2. Saved Playlists Subtab (Study & Personal Favorites) */}
+                  {librarySubTab === 'saved' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                        <span>Playlists Salvas para Estudo ({savedPlaylists.length})</span>
+                        <span className="text-[10px] text-emerald-400 font-medium">Prontas para tocar</span>
+                      </div>
+
+                      <div className="max-h-64 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                        {savedPlaylists.map((pl) => (
+                          <div
+                            key={pl.id}
+                            className="bg-slate-950/60 hover:bg-emerald-950/30 border border-slate-800 hover:border-emerald-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                          >
+                            <div
+                              onClick={() => handlePlaySavedPlaylist(pl)}
+                              className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
+                            >
+                              {pl.thumbnail ? (
+                                <img
+                                  src={pl.thumbnail}
+                                  alt={pl.title}
+                                  className="w-12 h-10 object-cover rounded-xl bg-slate-900 shrink-0 border border-slate-800"
+                                />
+                              ) : (
+                                <div className="w-12 h-10 rounded-xl bg-emerald-900/40 border border-emerald-700/40 flex items-center justify-center text-emerald-400 shrink-0">
+                                  <Music2 className="w-4 h-4" />
+                                </div>
+                              )}
+
+                              <div className="min-w-0">
+                                <h4 className="text-xs font-bold text-white truncate group-hover:text-emerald-300 transition-colors">
+                                  {pl.title}
+                                </h4>
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                  <span>{pl.custom ? 'Personalizada' : 'Foco & Estudo'}</span>
+                                  {pl.itemCount ? (
+                                    <>
+                                      <span className="text-slate-600">•</span>
+                                      <span>{pl.itemCount} faixas</span>
+                                    </>
+                                  ) : null}
                                 </div>
                               </div>
-                            ))}
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {pl.custom && (
+                                <button
+                                  onClick={() => handleRemoveSavedPlaylist(pl.id, pl.title)}
+                                  className="p-2 bg-slate-900 hover:bg-red-950/50 text-slate-500 hover:text-red-400 rounded-xl transition-all border border-slate-800 cursor-pointer"
+                                  title="Remover das salvas"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handlePlaySavedPlaylist(pl)}
+                                className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                title="Tocar Playlist"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-white" />
+                                <span className="text-[10px] hidden sm:inline">Tocar</span>
+                              </button>
+                            </div>
                           </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 3. Recent Activities Subtab */}
+                  {librarySubTab === 'recents' && (
+                    recentActivities.length === 0 ? (
+                      <div className="text-center py-6 text-slate-400 space-y-2.5 bg-slate-950/40 rounded-2xl border border-slate-800 p-4">
+                        <History className="w-8 h-8 mx-auto opacity-40 text-cyan-400" />
+                        <p className="text-xs font-semibold text-slate-200">Sem atividades recentes</p>
+                        <p className="text-[11px] text-slate-400 max-w-xs mx-auto leading-relaxed">
+                          Nenhuma atividade recente registrada recentemente na sua conta do YouTube Music.
+                        </p>
+                        <a
+                          href="https://music.youtube.com/library"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700/80 rounded-xl text-xs font-semibold transition-all shadow-sm cursor-pointer"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                          <span>Acessar YouTube Music</span>
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 px-1">
+                          <span>Atividades Recentes ({recentActivities.length})</span>
+                          <span className="text-[10px] text-cyan-400">Direto da sua conta</span>
                         </div>
-                      )
-                    )}
-                  </div>
-                )}
+                        <div className="max-h-64 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                          {recentActivities.map((act) => (
+                            <div
+                              key={act.id}
+                              className="bg-slate-950/60 hover:bg-cyan-950/30 border border-slate-800 hover:border-cyan-500/50 p-2.5 rounded-2xl transition-all flex items-center justify-between gap-3 group"
+                            >
+                              <div
+                                onClick={() => handleSelectRecentActivity(act)}
+                                className="flex items-center gap-2.5 min-w-0 cursor-pointer flex-1"
+                              >
+                                {act.thumbnail ? (
+                                  <img
+                                    src={act.thumbnail}
+                                    alt={act.title}
+                                    className="w-12 h-10 object-cover rounded-xl bg-slate-900 shrink-0 border border-slate-800"
+                                  />
+                                ) : (
+                                  <div className="w-12 h-10 rounded-xl bg-cyan-900/40 border border-cyan-700/40 flex items-center justify-center text-cyan-400 shrink-0">
+                                    <Music2 className="w-4 h-4" />
+                                  </div>
+                                )}
+
+                                <div className="min-w-0">
+                                  <h4 className="text-xs font-bold text-white truncate group-hover:text-cyan-300 transition-colors">
+                                    {act.title}
+                                  </h4>
+                                  <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5">
+                                    <span className="truncate">{act.channelTitle || 'YouTube Music'}</span>
+                                    {act.type === 'like' && (
+                                      <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-950/60 border border-rose-700/40 text-rose-300 font-medium shrink-0 flex items-center gap-0.5">
+                                        <Heart className="w-2.5 h-2.5 fill-rose-500" />
+                                        <span>Curtida</span>
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <a
+                                  href={act.link || (act.videoId ? `https://music.youtube.com/watch?v=${act.videoId}` : 'https://music.youtube.com')}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-cyan-400 rounded-xl transition-all border border-slate-800"
+                                  title="Abrir no YouTube Music"
+                                >
+                                  <ExternalLink className="w-3.5 h-3.5" />
+                                </a>
+                                <button
+                                  onClick={() => handleSelectRecentActivity(act)}
+                                  className="p-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+                                  title="Tocar Faixa Recente"
+                                >
+                                  <Play className="w-3.5 h-3.5 fill-white" />
+                                  <span className="text-[10px] hidden sm:inline">Tocar</span>
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
               </div>
             )}
 

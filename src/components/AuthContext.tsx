@@ -174,15 +174,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       provider.setCustomParameters({ prompt: 'select_account' });
       provider.addScope('https://www.googleapis.com/auth/userinfo.profile');
       provider.addScope('https://www.googleapis.com/auth/userinfo.email');
+      provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
 
       const result = await signInWithPopup(auth, provider);
-      const credential = (result as any).credential;
+      const credential = GoogleAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken || null;
 
       if (token) {
         setGoogleAccessToken(token);
         try {
           localStorage.setItem(GOOGLE_TOKEN_KEY, token);
+          localStorage.setItem('synapse_youtube_token', token);
+          localStorage.setItem('synapse_google_music_token', token);
+          if (result.user?.email) {
+            localStorage.setItem('synapse_google_music_email', result.user.email);
+          }
         } catch (e) {}
       }
 

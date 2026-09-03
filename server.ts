@@ -130,17 +130,21 @@ async function startServer() {
           errMessage.includes('overloaded');
 
         if (isHighDemandOrUnavailable) {
-          console.warn(
-            `[Gemini Resilience] High demand / 503 on model ${currentModel} (attempt ${attempts}/${maxAttempts}). Will switch to fallback model...`
+          console.log(
+            `[Gemini Resilience] Alta demanda temporária no modelo ${currentModel} (tentativa ${attempts}/${maxAttempts}). Alternando para modelo alternativo...`
           );
         } else {
-          console.error(`[Gemini Resilience] Error on attempt ${attempts}/${maxAttempts} (${currentModel}):`, errMessage);
+          console.log(`[Gemini Resilience] Informação na tentativa ${attempts}/${maxAttempts} (${currentModel}): ${err?.message || 'Falha temporária'}`);
         }
 
         // If transient error (503 / network) and we have attempts left
         if (attempts < maxAttempts) {
-          const delayMs = isHighDemandOrUnavailable ? 400 : 1000;
-          console.log(`[Gemini Resilience] Retrying with fallback model in ${delayMs}ms...`);
+          // If tools were present, strip them on retry
+          if (currentConfig?.tools) {
+            delete currentConfig.tools;
+          }
+          const delayMs = isHighDemandOrUnavailable ? 600 * attempts : 1000;
+          console.log(`[Gemini Resilience] Nova tentativa com modelo de contingência em ${delayMs}ms...`);
           await new Promise((res) => setTimeout(res, delayMs));
           continue;
         }
@@ -342,14 +346,28 @@ async function startServer() {
       ].filter((m, idx, arr) => arr.indexOf(m) === idx);
 
       let streamedAny = false;
-      let lastStreamError: any = null;
+      let candidateIndex = 0;
 
       for (const currentCandidate of candidateModels) {
+        candidateIndex++;
         try {
+          // If a previous candidate hit high demand (503), wait briefly for the transient spike to clear
+          if (candidateIndex > 1) {
+            const backoffMs = candidateIndex === 2 ? 500 : 1000;
+            await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          }
+
+          // Strip grounding tools on retry if previous attempt experienced difficulty
+          let activeConfig = Object.keys(config).length > 0 ? { ...config } : undefined;
+          if (candidateIndex > 1 && activeConfig?.tools) {
+            activeConfig = { ...activeConfig };
+            delete activeConfig.tools;
+          }
+
           const stream = await aiClient.models.generateContentStream({
             model: currentCandidate,
             contents: contentsPayload,
-            config: Object.keys(config).length > 0 ? config : undefined,
+            config: activeConfig,
           });
 
           for await (const chunk of stream) {
@@ -366,11 +384,7 @@ async function startServer() {
             return;
           }
         } catch (streamErr: any) {
-          lastStreamError = streamErr;
-          console.warn(
-            `[Gemini Stream] Modelo ${currentCandidate} indisponível (503 ou erro temporário). Tentando próximo modelo da cascata...`,
-            streamErr?.message || streamErr
-          );
+          console.log(`[Gemini Stream] Modelo ${currentCandidate} ocupado temporariamente (503). Verificando alternativa na esteira...`);
           if (streamedAny) {
             // Se já enviou parte dos dados, encerra o stream sem corromper a resposta
             res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
@@ -386,7 +400,7 @@ async function startServer() {
           const fallbackRes = await callGeminiWithResilience(aiClient, {
             model: 'gemini-3.1-flash-lite',
             contents: contentsPayload,
-            config: Object.keys(config).length > 0 ? config : undefined,
+            config: Object.keys(config).length > 0 ? { ...config, tools: undefined } : undefined,
           });
 
           if (fallbackRes && fallbackRes.text) {
@@ -396,7 +410,7 @@ async function startServer() {
             return;
           }
         } catch (resilienceErr: any) {
-          console.warn('[Gemini Stream Resilience Fallback Error]:', resilienceErr?.message || resilienceErr);
+          console.log('[Gemini Stream Resilience] Transição para resposta pedagógica de acolhimento.');
         }
       }
 
@@ -409,7 +423,7 @@ async function startServer() {
       res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
       res.end();
     } catch (err: any) {
-      console.error('[Gemini Stream Root Error]:', err);
+      console.log('[Gemini Stream Catch]:', err?.message || 'Falha de stream');
       if (!res.headersSent) {
         return res.status(500).json({ success: false, error: err.message });
       }
@@ -2212,35 +2226,33 @@ Seja direto, claro e encorajador.`;
       };
 
       // 1. Busca playlists criadas/salvas na biblioteca (playlists.list mine=true)
-      const ytPlaylistsPromise = fetch(
-        'https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=50',
-        { headers }
-      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-
-      // 2. Busca informações do canal para obter Músicas Curtidas (LL / LM) e avatar
-      const ytChannelPromise = fetch(
-        'https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails,statistics&mine=true',
-        { headers }
-      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-
-      // 3. Busca atividades recentes do usuário (activities.list mine=true)
-      const ytActivitiesPromise = fetch(
-        'https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&mine=true&maxResults=30',
-        { headers }
-      ).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+      let authExpired = false;
+      const safeFetch = async (url: string) => {
+        try {
+          const r = await fetch(url, { headers });
+          if (r.status === 401 || r.status === 403) {
+            authExpired = true;
+            return null;
+          }
+          if (!r.ok) return null;
+          return await r.json();
+        } catch {
+          return null;
+        }
+      };
 
       const [playlistsData, channelData, activitiesData] = await Promise.all([
-        ytPlaylistsPromise,
-        ytChannelPromise,
-        ytActivitiesPromise,
+        safeFetch('https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=50'),
+        safeFetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,contentDetails,statistics&mine=true'),
+        safeFetch('https://www.googleapis.com/youtube/v3/activities?part=snippet,contentDetails&mine=true&maxResults=30'),
       ]);
 
-      if (!playlistsData && !channelData && !activitiesData) {
+      if (authExpired || (!playlistsData && !channelData && !activitiesData)) {
         return res.status(401).json({
           success: false,
           error: {
             code: 'AUTH_EXPIRED',
-            message: 'Sessão do YouTube expirada ou permissão insuficiente. Por favor, reconecte.',
+            message: 'Sessão do YouTube expirada ou permissão insuficiente (escopo youtube.readonly necessário). Por favor, reconecte sua conta.',
           },
         });
       }
